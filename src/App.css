@@ -1,0 +1,654 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+
+.App {
+  text-align: center;
+  background-color: #f8f8f8;
+  font-family: 'Roboto', sans-serif;
+}
+
+html {
+  background-color: #f8f8f8;
+  font-family: 'Roboto', sans-serif;
+}
+
+h6 {
+  font-size: 12px;
+}
+
+
+
+.card {
+  margin: 25px;
+}
+
+.card-top-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.card-title {
+  text-align: left;
+}
+
+/* nudge the Athlete List title slightly upward while keeping left alignment */
+.athlete-list-title {
+  margin-top: -6px;
+}
+
+.card-filters {
+  display: flex;
+  float: right;
+}
+
+.card-filter {
+  margin: 0 10px;
+}
+
+.watchlist-card {
+  margin-right: 15px;
+}
+
+#search {
+ width: 180px;
+}
+
+#filter {
+  width: 120px;
+}
+
+.filter {
+  min-width: 180px;
+}
+
+.ant-select-selection-item {
+  text-align: left;
+}
+
+.subtitle {
+  display: flex;
+  float: left;
+}
+
+.patient-cards {
+  padding: 15px 0%;
+}
+
+.ant-card-head-title {
+  text-align: left;
+}
+
+/* Allow label hit-testing (cursor is conditional on placement mode) */
+.apexcharts-annotation-label,
+.apexcharts-annotation-label text,
+.apexcharts-xaxis-annotation-label,
+.apexcharts-point-annotation-label {
+  pointer-events: all;
+}
+
+/* Show pointer cursor only when Detail placement mode is OFF */
+.chart-wrapper.view-detail .apexcharts-annotation-label,
+.chart-wrapper.view-detail .apexcharts-annotation-label text,
+.chart-wrapper.view-detail .apexcharts-xaxis-annotation-label,
+.chart-wrapper.view-detail .apexcharts-point-annotation-label {
+  cursor: pointer;
+}
+
+/* Cursor must also apply to SVG children (e.g., the background rect) */
+.chart-wrapper.view-detail .apexcharts-annotation-label *,
+.chart-wrapper.view-detail .apexcharts-xaxis-annotation-label *,
+.chart-wrapper.view-detail .apexcharts-point-annotation-label * {
+  cursor: pointer;
+}
+
+/* Some ApexCharts annotation label shapes don't live under the label classes; target the
+   label background rect by its distinctive stroke/fill used for Detail labels. */
+.chart-wrapper.view-detail svg rect[stroke="#bfacbf"][fill="#D9CCD8"],
+.chart-wrapper.view-detail svg rect[stroke="#bfacbf"][fill="#d9ccd8"] {
+  cursor: pointer !important;
+}
+
+/* Hover affordance: when the hand cursor is active, tint the Detail label background
+   with a lighter/transparent chart red so users can tell it's interactive. */
+.chart-wrapper.view-detail svg rect[stroke="#bfacbf"][fill="#D9CCD8"]:hover,
+.chart-wrapper.view-detail svg rect[stroke="#bfacbf"][fill="#d9ccd8"]:hover,
+.chart-wrapper.view-detail svg rect[stroke="#bfacbf"]:hover {
+  fill: rgba(229, 57, 53, 0.28) !important;
+}
+
+/* Apex labels can include nested SVG tspans/divs; make sure they still receive clicks */
+.apexcharts-annotation-label *,
+.apexcharts-xaxis-annotation-label *,
+.apexcharts-point-annotation-label * {
+  pointer-events: all !important;
+}
+
+/* Apex may set pointer-events on specific SVG shapes; override for label hit targets */
+.apexcharts-annotation-label rect,
+.apexcharts-annotation-label text,
+.apexcharts-xaxis-annotation-label rect,
+.apexcharts-xaxis-annotation-label text,
+.apexcharts-point-annotation-label rect,
+.apexcharts-point-annotation-label text {
+  pointer-events: all !important;
+}
+
+/* click-to-view detail label overlay */
+.detail-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  display: block;
+  z-index: 100000;
+
+  /* prevent touch-driven overscroll from propagating to the page behind */
+  overscroll-behavior: contain;
+  /* keep default touch behavior to avoid unexpected scroll jumps */
+  touch-action: auto;
+
+  animation: detailOverlayFadeIn 160ms ease-out;
+}
+
+.detail-overlay-box {
+  position: fixed;
+  font-family: Roboto, sans-serif;
+  color: #333;
+  /* size adapts to content: grows with text up to max width */
+  display: inline-block;
+  width: auto;
+  /* allow very short labels to be small, but cap width so text wraps after 44 chars */
+  min-width: 6ch;
+  max-width: min(44ch, calc(100% - 48px));
+  border-radius: 6px;
+  overflow: visible;
+  background: transparent;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  border: none; /* remove faint border so white body doesn't show inner box */
+  transform-origin: left bottom; /* anchor transforms to the left/bottom so it sits right+above the label */
+  /* Default: place the overlay to the right and above the clicked label */
+  transform: translateX(8px) translateY(calc(-100% - 8px));
+
+  animation: detailOverlayPopIn 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* Prevent a dark focus/outline or background on the editable/detail text */
+.detail-overlay-text,
+.detail-overlay-text:focus,
+.detail-overlay-text[contenteditable="true"],
+.detail-overlay-text[contenteditable="true"]:focus,
+.detail-overlay-edit-input:focus,
+.detail-overlay-box-body:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* Default placement: anchored to the right and above the clicked label */
+.detail-overlay-box.pos-above {
+  /* move the overlay a few pixels higher so the white body sits closer to the label */
+  transform: translateX(8px) translateY(calc(-100% - 8px));
+}
+
+/* Fallback when the label is too close to the top */
+.detail-overlay-box.pos-below {
+  /* fallback when the label is too close to the top: show below and to the right */
+  transform: translateX(8px) translateY(8px);
+}
+
+/* Centered placement: vertically center the overlay relative to the label */
+.detail-overlay-box.pos-center {
+  transform: translateX(8px) translateY(-50%);
+  transform-origin: left center; /* anchor horizontally from the left edge */
+}
+
+@keyframes detailOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes detailOverlayPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-overlay-backdrop,
+  .detail-overlay-box {
+    animation: none;
+  }
+}
+
+.detail-overlay-box-header {
+  display: none; /* remove the upper grey header so only the white body remains */
+}
+
+.detail-overlay-box-body {
+  background: #ffffff;
+  padding: 8px 10px;
+  /* cap height to ~9 lines of text; show internal vertical scroll (slider) when content exceeds */
+  max-height: calc(1.25em * 9);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  border-radius: 6px; /* round the white body to match the overall container */
+}
+
+.detail-overlay-edit-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  line-height: 1.25;
+  background: transparent;
+  padding: 0;
+}
+
+.detail-overlay-text {
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* WebKit scrollbar styling for nicer thin slider inside overlay */
+.detail-overlay-box-body::-webkit-scrollbar {
+  width: 8px;
+}
+.detail-overlay-box-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.detail-overlay-box-body::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.18);
+  border-radius: 6px;
+}
+.detail-overlay-box-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.28);
+}
+
+/* Action buttons (right side of the white detail overlay box, outside the box) */
+.detail-overlay-box {
+  /* .detail-overlay-box is already positioned (fixed) and will act as the
+     positioning ancestor for the action buttons so they stay locked to the
+     overlay regardless of where the overlay is placed on the page. */
+  position: fixed;
+}
+.detail-overlay-box .detail-overlay-actions {
+  display: flex;
+  gap: 6px;
+  position: absolute;
+  top: 50%; /* align vertically to the middle of the white box */
+  right: -70px; /* nudged a tiny bit right from -64px to -70px */
+  transform: translateY(-50%);
+  z-index: 120; /* above the white box but below the backdrop */
+}
+.detail-overlay-action {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  color: #444;
+  box-shadow: 0 1.5px 4px rgba(0,0,0,0.07);
+  transition: background-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.detail-overlay-action:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.06) !important;
+}
+.detail-overlay-action:hover {
+  background: rgba(0,0,0,0.04);
+  transform: translateY(-1px);
+}
+
+/* Cancel (X) button */
+.detail-overlay-action.cancel::before {
+  content: "✕";
+  line-height: 1;
+}
+.detail-overlay-action.cancel:hover {
+  color: #E53935;
+  border-color: rgba(229,53,53,0.18);
+}
+
+/* Send / Enter button (return arrow) */
+.detail-overlay-action.send::before {
+  content: "↵";
+  line-height: 1;
+}
+.detail-overlay-action.send {
+  border-color: #E53935;
+  color: #E53935;
+}
+.detail-overlay-action.send:hover {
+  background: rgba(229,53,53,0.08);
+  box-shadow: 0 6px 18px rgba(229,57,53,0.06);
+}
+
+/* preview vertical line when placing events */
+.chart-wrapper { position: relative; }
+.chart-preview-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(229,57,53,0.9);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 30;
+}
+
+/* inline annotation text input shown when user clicks to add an annotation */
+.annotation-input {
+  font-family: Roboto, sans-serif;
+  font-size: 13px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.hide-events-btn {
+  margin-left: 12px;
+  /* ensure the hide button sits vertically centered next to segmented labels */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  vertical-align: middle;
+  height: 28px;
+  padding: 0 8px;
+  /* keep default (AntD) colors; only change on hover */
+  background: transparent;
+  border-radius: 8px;
+  border: 2px solid #d9d9d9; /* default light grey border when not hovered */
+  color: inherit;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+/* On hover, switch to chart red and add a subtle highlight. Do NOT apply on focus
+   so clicking the button won't leave it permanently red. */
+.hide-events-btn:hover,
+.ant-btn.hide-events-btn:hover,
+.ant-btn.hide-events-btn:hover span {
+  color: #E53935 !important;
+  border-color: #E53935 !important;
+  background: rgba(229,53,53,0.06);
+  box-shadow: 0 6px 18px rgba(229,57,53,0.06);
+}
+
+/* Keep focus/active neutral so the color doesn't persist after clicking */
+.hide-events-btn:focus,
+.ant-btn.hide-events-btn:focus,
+.hide-events-btn:active,
+.ant-btn.hide-events-btn:active,
+.ant-btn.hide-events-btn:active span,
+.ant-btn.hide-events-btn:focus-visible {
+  color: inherit !important;
+  border-color: #d9d9d9 !important; /* keep grey border when focused/active */
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Ensure default Ant button wrapper uses grey border too */
+.ant-btn.hide-events-btn {
+  border-color: #d9d9d9 !important;
+  color: inherit !important;
+}
+
+.patient-fitbit-options .ant-btn.event-toggle {
+  margin-left: 8px;
+}
+
+/* make inline Event buttons (antd Button) match the Event tab label styles */
+.ant-btn.event-toggle {
+  transition: color 400ms ease, box-shadow 400ms ease;
+  outline: none;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+.ant-btn.event-toggle.active {
+  color: #E53935;
+  box-shadow: 0 0 0 3px rgba(229,57,53,0.18);
+}
+
+/* style Event tab label when active (placement mode) */
+.ant-tabs-nav .event-toggle {
+  transition: color 400ms ease, box-shadow 400ms ease; /* animate highlight */
+  outline: none;
+  display: inline-block;
+  padding: 2px 6px; /* keep padding consistent so layout doesn't shift */
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+.ant-tabs-nav .event-toggle.active {
+  color: #E53935; /* match chart primary color */
+  box-shadow: 0 0 0 3px rgba(229,57,53,0.18); /* subtle halo matching chart color */
+}
+
+/* hide the small x-axis numeric tooltip that ApexCharts renders below the marker */
+.patient-header .apexcharts-xaxistooltip,
+.patient-header .apexcharts-xaxistooltip-text,
+.patient-header .apexcharts-xaxistooltip-bottom {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* hide ApexCharts hover crosshair lines (vertical dotted lines that appear on hover) */
+.patient-header .apexcharts-crosshairs,
+.patient-header .apexcharts-xcrosshairs,
+.patient-header .apexcharts-crosshairs line,
+.patient-header .apexcharts-xcrosshairs line,
+.apexcharts-crosshairs,
+.apexcharts-xcrosshairs,
+.apexcharts-crosshairs line,
+.apexcharts-xcrosshairs line {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+.patient-header-name {
+  display: flex;
+  float: left;
+  align-items: baseline;
+}
+
+.patient-header-summary {
+  margin-top: 40px;
+  display: flex;
+  justify-content: space-between;
+}
+
+
+
+.patient-header-summary-profile-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: gray;
+}
+
+.patient-fitbit-row, .patient-promis-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.patient-fitbit-title, .patient-fitbit-row, .patient-promis-title, .patient-promis-row {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.patient-fitbit-options, .patient-promis-options {
+  display: flex;
+  align-items: center;
+}
+
+/* If the hide button is wrapped in an extra div (inline wrapper),
+   ensure it uses the same spacing/alignment as the segmented control */
+.patient-fitbit-options > div:last-child,
+.patient-promis-options > div:last-child {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.patient-fitbit-switch-group, .patient-promis-switch-group {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 10px;
+  margin-right: 20px;
+}
+
+.patient-fitbit-switch, .patient-promis-switch {
+  margin-right: 6px;
+}
+
+.patient-fitbit-segmented, .patient-promis-segmented {
+  margin-bottom: 2px;
+}
+
+.patient-fitbit-metric {
+  margin-top: 10px;
+}
+
+.patient-promis-metric {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+
+}
+
+.patient-fibit-metric-graph, .patient-promis-metric-graph {
+  float: left;
+  margin-top: 10px;
+  margin-bottom: 40px;
+}
+
+.patient-promis-metric-graph {
+  width: 48%;
+}
+
+.patient-fibit-metric-title, .patient-promis-metric-title {
+  float: left;
+  padding-top: 10px;
+  margin-bottom: 40px;
+}
+
+.patient-metric-summaries {
+  display: flex;
+  justify-content: space-between;
+}
+
+.patient-metric-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  float: left;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.patient-card-metric-stat {
+  float: left;
+  display: flex;
+  align-items: center;
+  width: 80%;
+  justify-content: space-between;
+}
+
+.image {
+  width: 250px;
+}
+
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+/* Movet header (Ant Layout) color: text and avatar/icon */
+.ant-layout-header.header {
+  background-color: #333333 !important;
+  color: #ffffff !important; /* header text/icons switched to white for contrast */
+}
+.ant-layout-header.header #title,
+.ant-layout-header.header #username {
+  color: #ffffff !important;
+}
+.ant-layout-header.header .ant-avatar,
+.ant-layout-header.header .anticon,
+.ant-layout-header.header svg {
+  color: #ffffff !important;
+  fill: currentColor !important;
+}
+
+/* Dashboard content background (keep child element colors intact) */
+#dashboard {
+  background-color: #fafafa;
+}
+
+/* Patient page background (keep child element colors intact) */
+#patient,
+.patient-page {
+  background-color: #fafafa;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Global: make Ant Design Tabs use the chart red for active/hover + ink bar */
+.ant-tabs .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn,
+.ant-tabs .ant-tabs-nav .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #E53935 !important;
+}
+
+.ant-tabs .ant-tabs-ink-bar {
+  background: #E53935 !important;
+}

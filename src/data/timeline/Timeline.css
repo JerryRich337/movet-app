@@ -1,0 +1,65 @@
+.timeline {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 16px;
+}
+
+.weeks-group-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    position: relative;
+}
+
+.weeks-group-header .ant-badge {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.weeks-group-header .ant-typography {
+    margin: 0;
+    text-align: center;
+    transform: translateX(-10px);
+}
+
+/* Dashboard Timeline badge: white fill, dark outline, dark text */
+#dashboard .weeks-group-header .ant-badge-count,
+#dashboard .weeks-group-header sup.ant-scroll-number {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: 0 0 0 1px #000000 inset !important;
+}
+
+/* shift Events 10+ slightly to the right */
+.weeks-group-header.events-10plus .ant-typography {
+    transform: translateX(10px);
+}
+
+.weeks-group-content {
+    display: flex;
+    flex-direction: column;
+    background-color: #fafafa;
+    flex-wrap: nowrap;
+    align-content: center;
+    justify-content: flex-start;
+    align-items: center;
+    border-radius: 10px;
+    -webkit-border-radius: 10px;
+    -moz-border-radius: 10px;
+    -ms-border-radius: 10px;
+    -o-border-radius: 10px;
+    height: 1000px;
+}
+
+.weeks-group-card {
+
+}
+
+.patient-card {
+    margin: 0px 0px 10px 0px;
+    width: 100%;
+}
