@@ -7,7 +7,6 @@ import 'antd/dist/reset.css';
 import { Layout, Card, Row, Col, Typography, Segmented, Tooltip, Tabs, Button } from 'antd';
 import { stepCountData, heartRateData, hrsOfSleepData, physicalFuncData, painInterData, athleteFitbitGraphOptions } from "./data/graph/GraphData";
 import athleteData from "./data/athleteData";
-import Graph from "./atoms/graph/Graph";
 
 const { Title } = Typography;
 const { Content } = Layout;
@@ -84,15 +83,11 @@ const Athlete = (props) => {
 
                     // Prefer: to the right and slightly above the clicked label.
                     const preferredLeft = rect.right + 12;
-                    const preferredTopAnchor = rect.top - 8;
 
                     // Use a consistent placement: always to the right and vertically
                     // centered relative to the clicked label so every overlay has the
                     // same x,y relationship to its label.
                     placement = 'center';
-
-                    const estimatedWidth = 360;
-                    const viewportW = window.innerWidth || 0;
                     const viewportH = window.innerHeight || 0;
 
                     // Keep a uniform x-offset to the right of the label for all events.
@@ -516,7 +511,7 @@ const Athlete = (props) => {
                     sel.addRange(range);
                 } catch (e) { /* ignore focus errors */ }
             }
-        }, [detailOverlayEditing]);
+        }, [detailOverlayEditing, detailOverlayEditText, detailOverlayText]);
 
         const overviewOptions = {
             chart: {
