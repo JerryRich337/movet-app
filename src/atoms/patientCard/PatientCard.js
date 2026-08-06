@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from "react-router-dom";
 import './PatientCard.css';
-import { Card, Divider, Tag } from 'antd';
+import { Card, Divider, Tag, Dropdown } from 'antd';
+import { EllipsisOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import StatisticRow from '../statisticRow/StatisticRow';
 
@@ -35,7 +36,7 @@ function PatientCard(props) {
       return { int: intPart, dec: decDigit };
     }
     const raw = ((last - first) / first) * 100;
-    const roundedOne = Math.round(raw * 10) / 10; // one decimal precision
+    const roundedOne = Math.round(raw * 10) / 10;
     const intPart = Math.trunc(roundedOne);
     const decDigit = Math.round(Math.abs(roundedOne - intPart) * 10);
     return { int: intPart, dec: decDigit };
@@ -58,13 +59,38 @@ function PatientCard(props) {
     picolor = "yellow"
   }
 
+  const dropdownMenu = {
+    items: [
+      {
+        key: 'edit',
+        label: 'Edit',
+        onClick: () => props.onEdit && props.onEdit(props.athlete)
+      },
+      {
+        key: 'delete',
+        label: 'Delete',
+        danger: true,
+        onClick: () => props.onDelete && props.onDelete(props.athlete)
+      }
+    ]
+  };
 
   return (
     <Link to="/patient" onClick={()=> props.setIndex(props.index)}>
         <Card 
             title={props.name} 
             hoverable={true} 
-            extra={<span className="dot" style={{backgroundColor: props.dotColor}}></span>} 
+            extra={
+              <div 
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }} 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              >
+                <span className="dot" style={{backgroundColor: props.dotColor}}></span>
+                <Dropdown menu={dropdownMenu} trigger={['click']}>
+                  <EllipsisOutlined style={{ fontSize: '18px', cursor: 'pointer', color: '#555' }} />
+                </Dropdown>
+              </div>
+            } 
             style={{
               width: 320,
               fontWeight: 400,
@@ -72,9 +98,10 @@ function PatientCard(props) {
               '--card-shadow': hexToRgba(props.dotColor, 0.28)
             }} 
             className="patient-card">
-            {props.metricData.map((data) => {
+            {props.metricData.map((data, idx) => {
               const parts = pctParts(data.data);
               return <StatisticRow 
+                        key={idx}
                         metric={data.metric}
                         percentage={parts.int}
                         decimal={parts.dec}
@@ -87,9 +114,7 @@ function PatientCard(props) {
               <Tag color={picolor}>Pain</Tag>
             </div>
         </Card>
-  </Link>
-  
-      
+    </Link>
   );
 };
 
