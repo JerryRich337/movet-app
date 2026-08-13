@@ -36,13 +36,17 @@ function StatisticRow(props) {
     } 
     
     
-  return (
+    const displayValue = props.value !== undefined && props.value !== null && props.value !== ''
+        ? props.value
+        : `${props.percentage}.${props.decimal}%`;
+
+    return (
     <div className='patient-card-content'>
         <div className='patient-card-value'>
         <span className='patient-card-arrow'>{arrowType}</span>
         <div className='patient-card-percentage'>
-            <Title level={3}>{props.percentage}</Title>
-            <Title level={4}>.{props.decimal}%</Title>
+                        <Title level={3}>{displayValue}</Title>
+                        {props.trendText ? <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{props.trendText}</Title> : null}
         </div>
         </div>
         <div className='patient-card-metric-info'>

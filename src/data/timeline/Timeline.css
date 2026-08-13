@@ -1,7 +1,9 @@
 .timeline {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px; /* Adjust spacing between cards/columns as needed */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .weeks-group-header {
@@ -39,27 +41,110 @@
     transform: translateX(10px);
 }
 
-.weeks-group-content {
-    display: flex;
-    flex-direction: column;
-    background-color: #fafafa;
-    flex-wrap: nowrap;
-    align-content: center;
-    justify-content: flex-start;
-    align-items: center;
-    border-radius: 10px;
-    -webkit-border-radius: 10px;
-    -moz-border-radius: 10px;
-    -ms-border-radius: 10px;
-    -o-border-radius: 10px;
-    height: 1000px;
+.weeks-group {
+  flex: 0 0 calc(25% - 12px); /* Ensures exactly 4 columns fit horizontally */
+  max-width: calc(25% - 12px);
+  min-width: 0;
+  container-type: inline-size;
+  box-sizing: border-box;
 }
 
-.weeks-group-card {
-
+.weeks-group-content {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .patient-card {
-    margin: 0px 0px 10px 0px;
-    width: 100%;
+  margin: 0px 0px 10px 0px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Only switch to compact sizing when a 4-column card gets too narrow */
+@container (max-width: 280px) {
+  .weeks-group .patient-card .ant-card-head {
+    padding: 0 10px;
+  }
+
+  .weeks-group .patient-card .ant-card-head-title {
+    min-width: 0;
+    font-size: clamp(11px, 1.3cqw, 16px);
+    line-height: 1.2;
+  }
+
+  .weeks-group .patient-card .ant-card-extra {
+    margin-inline-start: 8px;
+  }
+
+  .weeks-group .patient-card .ant-card-body {
+    padding: 10px;
+  }
+
+  .weeks-group .patient-card-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .weeks-group .patient-card-value {
+    flex: 0 0 auto;
+  }
+
+  .weeks-group .patient-card-arrow .anticon {
+    font-size: clamp(16px, 2.3cqw, 30px) !important;
+  }
+
+  .weeks-group .patient-card-percentage .ant-typography {
+    margin-bottom: 0;
+    line-height: 1;
+  }
+
+  .weeks-group .patient-card-percentage h3.ant-typography {
+    font-size: clamp(14px, 2.5cqw, 24px);
+  }
+
+  .weeks-group .patient-card-percentage h4.ant-typography {
+    font-size: clamp(12px, 2.1cqw, 18px);
+  }
+
+  .weeks-group .patient-card-metric {
+    font-size: clamp(10px, 1.7cqw, 14px) !important;
+    line-height: 1.2;
+  }
+
+  .weeks-group .patient-card-metric-info {
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .weeks-group .patient-card-metric-info .anticon {
+    font-size: clamp(11px, 1.6cqw, 16px);
+  }
+}
+
+@container (max-width: 230px) {
+  .weeks-group .patient-card .ant-card-head {
+    padding: 0 8px;
+  }
+
+  .weeks-group .patient-card .ant-card-body {
+    padding: 8px;
+  }
+
+  .weeks-group .card-badges {
+    gap: 4px;
+  }
+
+  .weeks-group .card-badges .ant-tag {
+    margin-inline-end: 0;
+    padding: 0 6px;
+    line-height: 18px;
+    font-size: 10px;
+  }
+}
+
+.date-header-hover-box:hover {
+  border: 2px solid #fa8c16;
+  background-color: rgba(250, 140, 22, 0.08);
 }

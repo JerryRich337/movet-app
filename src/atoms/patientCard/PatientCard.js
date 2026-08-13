@@ -76,7 +76,11 @@ function PatientCard(props) {
   };
 
   return (
-    <Link to="/patient" onClick={()=> props.setIndex(props.index)}>
+    <Link to="/patient" state={{ athlete: props.athlete, index: props.index }} onClick={()=> {
+      if (props.setIndex && Number.isInteger(props.index)) {
+        props.setIndex(props.index);
+      }
+    }}>
         <Card 
             title={props.name} 
             hoverable={true} 
@@ -92,7 +96,7 @@ function PatientCard(props) {
               </div>
             } 
             style={{
-              width: 320,
+              width: props.cardWidth || 320,
               fontWeight: 400,
               borderColor: props.dotColor,
               '--card-shadow': hexToRgba(props.dotColor, 0.28)
@@ -100,12 +104,18 @@ function PatientCard(props) {
             className="patient-card">
             {props.metricData.map((data, idx) => {
               const parts = pctParts(data.data);
+              const latestValue = data && Array.isArray(data.data) && data.data.length > 0
+                ? data.data[data.data.length - 1]
+                : data.avg;
+              const trendText = `${parts.int}${parts.dec ? `.${parts.dec}` : ''}% change`;
               return <StatisticRow 
                         key={idx}
                         metric={data.metric}
+                        value={latestValue}
                         percentage={parts.int}
                         decimal={parts.dec}
                         arrow={data.arrow}
+                        trendText={trendText}
                         />
             })}
             <Divider/>

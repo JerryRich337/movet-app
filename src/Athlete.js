@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "react-apexcharts";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowLeftOutlined, QuestionCircleOutlined, CaretUpOutlined, CaretDownOutlined, MinusOutlined } from '@ant-design/icons';
 import './App.css';
 import 'antd/dist/reset.css';
@@ -13,6 +13,10 @@ const { Content } = Layout;
   
 
 const Athlete = (props) => {
+    const location = useLocation();
+    const selectedAthlete = location.state?.athlete || athleteData[props.index] || athleteData[0] || {};
+    const selectedAthleteMetricData = Array.isArray(selectedAthlete.metricData) ? selectedAthlete.metricData : [];
+    const selectedAthleteIndex = Number.isInteger(props.index) && athleteData[props.index] ? props.index : (selectedAthlete.key ?? 0);
 
     useEffect(() => {
         window.scrollTo(0, 0)
@@ -702,9 +706,9 @@ const Athlete = (props) => {
         };
 
         const metricOverview = [
-            Object.assign(makeOverviewSeries(athleteData[props.index].metricData[0].data), { name: 'Recent Step Count' }),
-            Object.assign(makeOverviewSeries(athleteData[props.index].metricData[1].data), { name: 'Recent Heart Rate' }),
-            Object.assign(makeOverviewSeries(athleteData[props.index].metricData[2].data), { name: 'Recent Hrs of Rest' })
+            Object.assign(makeOverviewSeries((selectedAthleteMetricData[0] && selectedAthleteMetricData[0].data) || stepCountData[selectedAthleteIndex]?.data || []), { name: 'Recent Step Count' }),
+            Object.assign(makeOverviewSeries((selectedAthleteMetricData[1] && selectedAthleteMetricData[1].data) || heartRateData[selectedAthleteIndex]?.data || []), { name: 'Recent Heart Rate' }),
+            Object.assign(makeOverviewSeries((selectedAthleteMetricData[2] && selectedAthleteMetricData[2].data) || hrsOfSleepData[selectedAthleteIndex]?.data || []), { name: 'Recent Hrs of Rest' })
         ];
 
         const averageData = [
@@ -734,7 +738,7 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Step Count',
                                 type: 'column',
-                                data: stepCountData[props.index].data
+                                        data: (selectedAthleteMetricData[0] && selectedAthleteMetricData[0].data) || stepCountData[selectedAthleteIndex]?.data || []
                             }, {
                                 name: 'Average',
                                 type: 'area',
@@ -754,7 +758,7 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Heart Rate',
                                 type: 'column',
-                                data: heartRateData[props.index].data
+                                        data: (selectedAthleteMetricData[1] && selectedAthleteMetricData[1].data) || heartRateData[selectedAthleteIndex]?.data || []
                             }, {
                                 name: 'Average',
                                 type: 'area',
@@ -773,7 +777,7 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Hrs of Rest',
                                 type: 'column',
-                                data: hrsOfSleepData[props.index].data
+                                        data: (selectedAthleteMetricData[2] && selectedAthleteMetricData[2].data) || hrsOfSleepData[selectedAthleteIndex]?.data || []
                             }, {
                                 name: 'Average',
                                 type: 'area',
@@ -792,7 +796,7 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Activeness',
                                 type: 'column',
-                                data: physicalFuncData[props.index].data
+                                        data: selectedAthlete.pfScore || physicalFuncData[selectedAthleteIndex]?.data || []
                             }, {
                                 name: 'Average',
                                 type: 'area',
@@ -811,7 +815,7 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Pain',
                                 type: 'column',
-                                data: painInterData[props.index].data
+                                        data: selectedAthlete.piScore || painInterData[selectedAthleteIndex]?.data || []
                             }, {
                                 name: 'Average',
                                 type: 'area',
@@ -1205,7 +1209,7 @@ const Athlete = (props) => {
                         </Link>
                     </Col>
                     <Col span={16} style={{textAlign: 'center'}}>
-                        <Title level={2} style={{margin: 0, marginLeft: -30}}>{athleteData[props.index].name}</Title>
+                        <Title level={2} style={{margin: 0, marginLeft: -30}}>{selectedAthlete.name || 'Athlete'}</Title>
                     </Col>
                     <Col span={4}></Col>
                 </Row>
@@ -1213,19 +1217,19 @@ const Athlete = (props) => {
                     <Col span={4} className="patient-header-summary-profile">
                         <div className="patient-header-summary-profile-row" >
                             <Title level={5} style={{color: "#595959", marginTop: "0"}}>DOB:</Title>
-                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{athleteData[props.index].dob}</Title>
+                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{selectedAthlete.dob || '-'}</Title>
                         </div>
                         <div className="patient-header-summary-profile-row" >
                             <Title level={5} style={{color: "#595959", marginTop: "0"}}>Age:</Title>
-                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{athleteData[props.index].age}</Title>
+                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{selectedAthlete.age ?? '-'}</Title>
                         </div>
                         <div className="patient-header-summary-profile-row">
                             <Title level={5} style={{color: "#595959", marginTop: "0"}}>Event #:</Title>
-                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{athleteData[props.index].currentWeek}</Title>
+                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{selectedAthlete.currentWeek ?? '-'}</Title>
                         </div>
                         <div className="patient-header-summary-profile-row">
                             <Title level={5} style={{color: "#595959", marginTop: "0"}}>Phone:</Title>
-                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{athleteData[props.index].phone}</Title>
+                            <Title level={5} style={{color: "gray", marginTop: "0"}}>{selectedAthlete.phone || '-'}</Title>
                         </div>
                     </Col>
                     <Col span={15} className="patient-metric-summaries">
@@ -1235,8 +1239,8 @@ const Athlete = (props) => {
                                 <Tooltip placement="top" title={"lorem ipsum dolor"}><QuestionCircleOutlined /></Tooltip>
                             </div>
                             <div className='patient-card-metric-stat'>
-                                <Title level={4} style={{margin: 0}}>{athleteData[props.index].metricData[0].avg}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{athleteData[props.index].metricData[0].percentage}% {athleteData[props.index].metricData[0].arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (athleteData[props.index].metricData[0].arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[0]?.avg ?? '-'}</Title>
+                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[0]?.percentage ?? 0}% {selectedAthleteMetricData[0]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[0]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[0]]} type="line" height={120}></Chart>
@@ -1247,8 +1251,8 @@ const Athlete = (props) => {
                                 <Tooltip placement="top" title={"lorem ipsum dolor"}><QuestionCircleOutlined /></Tooltip>
                             </div>
                             <div className='patient-card-metric-stat'>
-                                <Title level={4} style={{margin: 0}}>{athleteData[props.index].metricData[1].avg}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{athleteData[props.index].metricData[1].percentage}% {athleteData[props.index].metricData[1].arrow === "down" ? <CaretDownOutlined style={{color: "#52c41a"}}/> : (athleteData[props.index].metricData[1].arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#f37f89"}}/>)} </Title>
+                                <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[1]?.avg ?? '-'}</Title>
+                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[1]?.percentage ?? 0}% {selectedAthleteMetricData[1]?.arrow === "down" ? <CaretDownOutlined style={{color: "#52c41a"}}/> : (selectedAthleteMetricData[1]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#f37f89"}}/>)} </Title>
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[1]]} type="line" height={120}></Chart>
@@ -1259,8 +1263,8 @@ const Athlete = (props) => {
                                 <Tooltip placement="top" title={"lorem ipsum dolor"}><QuestionCircleOutlined /></Tooltip>
                             </div>
                             <div className='patient-card-metric-stat'>
-                                <Title level={4} style={{margin: 0}}>{athleteData[props.index].metricData[2].avg}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{athleteData[props.index].metricData[2].percentage}% {athleteData[props.index].metricData[2].arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (athleteData[props.index].metricData[2].arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[2]?.avg ?? '-'}</Title>
+                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[2]?.percentage ?? 0}% {selectedAthleteMetricData[2]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[2]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[2]]} type="line" height={120}></Chart>

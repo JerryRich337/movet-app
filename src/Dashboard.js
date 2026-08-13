@@ -13,14 +13,69 @@ const { Title } = Typography;
 const { Search } = Input;
 const { Option } = Select;
 
+const RANGE_CONFIG = {
+    '4D': { label: '4D', mode: 'cards' },
+    '1M': { label: '1M', mode: 'graph', buckets: 8 },
+    '6M': { label: '6M', mode: 'graph', buckets: 46 },
+    '1Y': { label: '1Y', mode: 'graph', buckets: 91 },
+};
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const toStartOfDay = (value) => {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return new Date();
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const addDays = (date, days) => {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+};
+
+const formatDashboardDate = (date) => {
+    const safeDate = toStartOfDay(date);
+    const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+    const day = String(safeDate.getDate()).padStart(2, '0');
+    return `${month}/${day}`;
+};
+
+const buildRangeSeries = (athletes, bucketCount) => {
+    const today = toStartOfDay();
+    const counts = Array.from({ length: bucketCount }, () => null);
+
+    athletes.forEach((athlete) => {
+        if (!athlete || !athlete.inserted_at) return;
+        const athleteDate = toStartOfDay(athlete.inserted_at);
+        const diffDays = Math.floor((today.getTime() - athleteDate.getTime()) / MS_PER_DAY);
+        if (diffDays < 0 || diffDays >= bucketCount * 4) return;
+
+        const bucketFromRight = Math.floor(diffDays / 4);
+        const bucketIndex = bucketCount - 1 - bucketFromRight;
+        if (bucketIndex < 0 || bucketIndex >= bucketCount) return;
+
+        counts[bucketIndex] = (counts[bucketIndex] || 0) + 1;
+    });
+
+    const categories = Array.from({ length: bucketCount }, (_, idx) => {
+        const offset = (bucketCount - 1 - idx) * 4;
+        return formatDashboardDate(addDays(today, -offset));
+    });
+
+    return { categories, data: counts };
+};
+
 const Dashboard = (props) => {
     const [athletes, setAthletes] = useState([]);
+    const [emptyGroups, setEmptyGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState("menu"); // "menu" or "manual"
     const [editingAthlete, setEditingAthlete] = useState(null);
     const [form] = Form.useForm();
     const [confirmLoading, setConfirmLoading] = useState(false);
+    const [rangeView, setRangeView] = useState('4D');
 
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -52,6 +107,27 @@ const Dashboard = (props) => {
         setEditingAthlete(null);
         setModalMode("menu");
         setIsModalOpen(true);
+    };
+
+    const handleAddEventGroup = () => {
+        const tempId = `empty_${Date.now()}`;
+        setEmptyGroups(prev => [...prev, { tempId, rawDate: '', isNew: true }]);
+    };
+
+    const handleSaveNewGroup = (tempId, dateStr) => {
+        const existingDates = new Set(athletes.map(a => a.inserted_at ? a.inserted_at.split('T')[0] : ''));
+        const isDuplicate = existingDates.has(dateStr) || emptyGroups.some(g => g.tempId !== tempId && g.rawDate === dateStr);
+
+        if (isDuplicate) {
+            message.warning("A group with this date already exists.");
+            setEmptyGroups(prev => prev.filter(g => g.tempId !== tempId));
+        } else {
+            setEmptyGroups(prev => prev.map(g => g.tempId === tempId ? { ...g, rawDate: dateStr, isNew: false } : g));
+        }
+    };
+
+    const handleRemoveEmptyGroup = (tempId) => {
+        setEmptyGroups(prev => prev.filter(g => g.tempId !== tempId));
     };
 
     const handleEditAthlete = (athlete) => {
@@ -194,6 +270,49 @@ const Dashboard = (props) => {
         }
     };
 
+    const handleUpdateGroupDate = async (athleteIds, newIsoDate) => {
+        try {
+            const { error } = await supabase
+                .from('athletes')
+                .update({ inserted_at: newIsoDate })
+                .in('id', athleteIds);
+
+            if (error) {
+                console.error("Supabase date update error:", error);
+                message.error("Failed to update date.");
+            } else {
+                setAthletes(prev => prev.map(a => athleteIds.includes(a.id) ? { ...a, inserted_at: newIsoDate } : a));
+                message.success("Date updated successfully!");
+            }
+        } catch (err) {
+            console.error("Error updating date:", err);
+            message.error("An unexpected error occurred.");
+        }
+    };
+
+    const handleMoveAthlete = async (athleteId, targetRawDate) => {
+        try {
+            const newIsoDate = `${targetRawDate}T00:00:00.000Z`;
+            const { error } = await supabase
+                .from('athletes')
+                .update({ inserted_at: newIsoDate })
+                .eq('id', athleteId);
+
+            if (error) {
+                console.error("Supabase move error:", error);
+                message.error("Failed to move athlete card.");
+            } else {
+                setAthletes(prev => prev.map(a => String(a.id) === String(athleteId) ? { ...a, inserted_at: newIsoDate } : a));
+                // Clean up any empty group matching targetRawDate now that it received a card
+                setEmptyGroups(prev => prev.filter(g => g.rawDate !== targetRawDate));
+                message.success("Athlete card moved successfully!");
+            }
+        } catch (err) {
+            console.error("Error moving athlete:", err);
+            message.error("An unexpected error occurred while moving.");
+        }
+    };
+
     const onSearch = (value) => console.log(value);
     const handleChange = (value) => { console.log(`${value}`); };
     const onChange1 = (key) => { console.log(key); };
@@ -202,7 +321,58 @@ const Dashboard = (props) => {
         const week = Number(athlete?.currentWeek);
         return Number.isFinite(week) && week >= 0;
     });
-    const hasAthleteCards = renderableAthletes.length > 0;
+    const hasContent = renderableAthletes.length > 0 || emptyGroups.length > 0;
+
+    const rangeChartConfig = RANGE_CONFIG[rangeView] || RANGE_CONFIG['4D'];
+    const rangeSeries = rangeChartConfig.mode === 'graph'
+        ? buildRangeSeries(renderableAthletes, rangeChartConfig.buckets)
+        : null;
+
+    const rangeChartOptions = rangeChartConfig.mode === 'graph' ? {
+        chart: {
+            type: 'bar',
+            toolbar: { show: false },
+        },
+        plotOptions: {
+            bar: {
+                columnWidth: '55%',
+                borderRadius: 4,
+            }
+        },
+        dataLabels: {
+            enabled: false,
+        },
+        xaxis: {
+            categories: rangeSeries ? rangeSeries.categories : [],
+            labels: {
+                rotate: -45,
+                trim: false,
+            },
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+        },
+        yaxis: {
+            show: false,
+        },
+        grid: {
+            show: false,
+        },
+        tooltip: {
+            enabled: true,
+        },
+        colors: ['#904199'],
+    } : null;
+
+    const rangeTabs = [
+        { key: '4D', label: '4D' },
+        { key: '1M', label: '1M' },
+        { key: '6M', label: '6M' },
+        { key: '1Y', label: '1Y' },
+    ].map((item) => ({
+        key: item.key,
+        label: item.label,
+        children: null,
+    }));
 
     const metrics = [
         {
@@ -250,34 +420,66 @@ const Dashboard = (props) => {
                   <Title level={2} className="card-title athlete-list-title" style={{ margin: 0 }}>Athlete List</Title>
                 </Col>
                 <Col>
-                  <Button 
-                    type="primary" 
-                    icon={<PlusOutlined />} 
-                    onClick={showModal} 
-                    style={{ background: "#904199", display: "flex", alignItems: "center" }}
-                  >
-                    Add Athlete
-                  </Button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+                    <Button 
+                      type="primary" 
+                      icon={<PlusOutlined />} 
+                      onClick={showModal} 
+                      style={{ background: "#904199", display: "flex", alignItems: "center" }}
+                    >
+                      Add Athlete
+                    </Button>
+                    <Button 
+                      icon={<PlusOutlined />} 
+                      onClick={handleAddEventGroup} 
+                      style={{ borderColor: "#904199", color: "#904199", display: "flex", alignItems: "center", width: "100%" }}
+                    >
+                      Add Event
+                    </Button>
+                  </div>
                 </Col>
                 </Row>
                 <Row style={{ marginTop: 16 }}>
                 <Col span={24}>
-                    {!hasAthleteCards ? (
+                    {!hasContent ? (
                         <Empty 
                             style={{ padding: "40px 0" }} 
                             description={
                                 <span>
-                                    No athlete records found. Click "Add Athlete" to create your first entry!
+                                    No athlete records found. Click "Add Athlete" or "Add Event" to create your first entry!
                                 </span>
                             } 
                         />
                     ) : (
-                        <Timeline 
-                            athletes={renderableAthletes} 
-                            setIndex={props.setIndex} 
-                            onEdit={handleEditAthlete}
-                            onDelete={handleDeleteAthlete}
-                        />
+                        <>
+                            <Tabs
+                                className="athlete-range-tabs"
+                                activeKey={rangeView}
+                                onChange={setRangeView}
+                                items={rangeTabs}
+                            />
+                            {rangeView === '4D' ? (
+                                <Timeline 
+                                    athletes={renderableAthletes} 
+                                    emptyGroups={emptyGroups}
+                                    setIndex={props.setIndex} 
+                                    onEdit={handleEditAthlete}
+                                    onDelete={handleDeleteAthlete}
+                                    onUpdateDate={handleUpdateGroupDate}
+                                    onMoveAthlete={handleMoveAthlete}
+                                    onSaveNewGroup={handleSaveNewGroup}
+                                    onRemoveEmptyGroup={handleRemoveEmptyGroup}
+                                />
+                            ) : (
+                                <div style={{ marginTop: 8 }}>
+                                    <Graph
+                                        options={rangeChartOptions}
+                                        series={[{ name: 'Athlete Cards', data: rangeSeries ? rangeSeries.data : [] }]}
+                                        type="bar"
+                                    />
+                                </div>
+                            )}
+                        </>
                     )}
                 </Col>
                 </Row>
@@ -291,7 +493,7 @@ const Dashboard = (props) => {
                 </Row>
                 <Row style={{ marginTop: 16 }}>
                 <Col span={24}>
-                    {!hasAthleteCards ? (
+                    {!hasContent ? (
                         <Empty 
                             style={{ padding: "40px 0" }} 
                             description={
