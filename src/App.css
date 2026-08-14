@@ -652,3 +652,47 @@ h6 {
 .ant-tabs .ant-tabs-ink-bar {
   background: #E53935 !important;
 }
+
+/* Team Data: unique-colored athlete name axis (replaces cards/columns for 4D/1M/6M/1Y) */
+.athlete-name-axis {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 24px;
+  padding: 16px 8px 20px;
+  margin-bottom: 16px;
+}
+
+.athlete-name-axis-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  height: 1px;
+  background: #d9d9d9;
+  z-index: 0;
+}
+
+.athlete-name-axis-tick {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.athlete-name-axis-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.athlete-name-axis-label {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+

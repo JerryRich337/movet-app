@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import './Timeline.css';
 import { Typography, Row, Col, Badge, Card, Input, Tooltip } from 'antd';
+import { CloseOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import PatientCard from '../../atoms/patientCard/PatientCard';
 
 const { Title } = Typography;
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 function Timeline(props) {
   const athletes = props.athletes || [];
   const emptyGroups = props.emptyGroups || [];
+  const focusRange = props.focusRange || null;
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -47,13 +51,41 @@ function Timeline(props) {
     tempId: eg.tempId
   }));
 
-  const allColumns = [...athleteColumns];
+  let allColumns = [...athleteColumns];
   emptyColumns.forEach(ec => {
     const existing = allColumns.find(c => c.rawDate === ec.rawDate && ec.rawDate !== '');
     if (!existing) {
       allColumns.push(ec);
     }
   });
+
+  if (focusRange && focusRange.start && focusRange.end) {
+    // One column for every athlete card that falls inside the clicked chart column's date range
+    const focusAthletes = athletes.filter(a => {
+      const rawDate = a.inserted_at ? a.inserted_at.split('T')[0] : null;
+      return rawDate && rawDate >= focusRange.start && rawDate <= focusRange.end;
+    });
+
+    const focusColumn = {
+      rawDate: focusRange.end,
+      displayDate: formatDate(`${focusRange.end}T00:00:00.000Z`),
+      athletes: focusAthletes,
+      isFocus: true,
+    };
+
+    const dayDistance = (rawDate) => {
+      if (rawDate < focusRange.start) return (new Date(focusRange.start) - new Date(rawDate)) / MS_PER_DAY;
+      if (rawDate > focusRange.end) return (new Date(rawDate) - new Date(focusRange.end)) / MS_PER_DAY;
+      return 0;
+    };
+
+    const closestOthers = athleteColumns
+      .filter(c => c.rawDate && c.athletes.length > 0 && !(c.rawDate >= focusRange.start && c.rawDate <= focusRange.end))
+      .sort((a, b) => dayDistance(a.rawDate) - dayDistance(b.rawDate))
+      .slice(0, 3);
+
+    allColumns = [focusColumn, ...closestOthers];
+  }
 
   // Sort columns chronologically (earliest date to latest date)
   allColumns.sort((a, b) => {
@@ -69,6 +101,7 @@ function Timeline(props) {
           key={col.tempId || col.rawDate}
           group={col}
           isNewGroup={col.isNew}
+          isFocus={col.isFocus}
           tempId={col.tempId}
           setIndex={props.setIndex}
           onEdit={props.onEdit}
@@ -77,16 +110,19 @@ function Timeline(props) {
           onMoveAthlete={props.onMoveAthlete}
           onSaveNewGroup={props.onSaveNewGroup}
           onRemoveEmptyGroup={props.onRemoveEmptyGroup}
+          onDeleteGroup={props.onDeleteGroup}
         />
       ))}
     </Row>
   );
 }
 
-function TimelineColumn({ group, isNewGroup, tempId, setIndex, onEdit, onDelete, onUpdateDate, onMoveAthlete, onSaveNewGroup, onRemoveEmptyGroup }) {
+
+function TimelineColumn({ group, isNewGroup, isFocus, tempId, setIndex, onEdit, onDelete, onUpdateDate, onMoveAthlete, onSaveNewGroup, onRemoveEmptyGroup, onDeleteGroup }) {
   const [isEditing, setIsEditing] = useState(isNewGroup || false);
   const [inputValue, setInputValue] = useState(group.displayDate || '');
   const [isInvalid, setIsInvalid] = useState(false);
+  const [isDateHovered, setIsDateHovered] = useState(false);
 
   useEffect(() => {
     if (!isEditing) {
@@ -162,7 +198,7 @@ function TimelineColumn({ group, isNewGroup, tempId, setIndex, onEdit, onDelete,
 
   return (
     <Col 
-      className="weeks-group"
+      className={isFocus ? "weeks-group weeks-group-focus" : "weeks-group"}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDropEvent}
     >
@@ -181,6 +217,8 @@ function TimelineColumn({ group, isNewGroup, tempId, setIndex, onEdit, onDelete,
                 setInputValue(group.displayDate || '');
                 setIsInvalid(false);
               }}
+              onMouseEnter={() => setIsDateHovered(true)}
+              onMouseLeave={() => setIsDateHovered(false)}
               style={{ 
                 cursor: 'pointer', 
                 padding: '2px 6px', 
@@ -214,7 +252,19 @@ function TimelineColumn({ group, isNewGroup, tempId, setIndex, onEdit, onDelete,
             />
           )}
         </Tooltip>
-        <Badge count={group.athletes.length} color='#E53935' />
+        {isDateHovered && !isEditing ? (
+          <span
+            className="weeks-group-delete-btn"
+            title="Delete this date and its cards"
+            onMouseEnter={() => setIsDateHovered(true)}
+            onMouseLeave={() => setIsDateHovered(false)}
+            onClick={() => onDeleteGroup && onDeleteGroup(group)}
+          >
+            <CloseOutlined />
+          </span>
+        ) : (
+          <Badge count={group.athletes.length} color='#E53935' />
+        )}
       </div>
       <Card 
         className='weeks-group-content' 

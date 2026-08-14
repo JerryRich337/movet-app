@@ -15,12 +15,28 @@ const { Option } = Select;
 
 const RANGE_CONFIG = {
     '4D': { label: '4D', mode: 'cards' },
-    '1M': { label: '1M', mode: 'graph', buckets: 8 },
-    '6M': { label: '6M', mode: 'graph', buckets: 46 },
-    '1Y': { label: '1Y', mode: 'graph', buckets: 91 },
+    '1M': { label: '1M', mode: 'graph', unit: 'day', buckets: 8 },
+    '6M': { label: '6M', mode: 'graph', unit: 'month', buckets: 6 },
+    '1Y': { label: '1Y', mode: 'graph', unit: 'day', buckets: 91 },
 };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const ATHLETE_NAME_COLORS = [
+    '#904199', '#E53935', '#52c41a', '#fbaf5d', '#1890ff',
+    '#13c2c2', '#eb2f96', '#faad14', '#722ed1', '#2f54eb',
+    '#a0d911', '#fa541c', '#08979c', '#c41d7f', '#7cb305',
+];
+
+// Deterministic color per athlete name so the same athlete always gets the same color
+const getColorForAthleteName = (name) => {
+    const safeName = name || '';
+    let hash = 0;
+    for (let i = 0; i < safeName.length; i++) {
+        hash = (hash * 31 + safeName.charCodeAt(i)) >>> 0;
+    }
+    return ATHLETE_NAME_COLORS[hash % ATHLETE_NAME_COLORS.length];
+};
 
 const toStartOfDay = (value) => {
     const date = value ? new Date(value) : new Date();
@@ -41,8 +57,16 @@ const formatDashboardDate = (date) => {
     return `${month}/${day}`;
 };
 
-const buildRangeSeries = (athletes, bucketCount) => {
-    const today = toStartOfDay();
+const toRawDateString = (date) => {
+    const safeDate = toStartOfDay(date);
+    const year = safeDate.getFullYear();
+    const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+    const day = String(safeDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const buildRangeSeries = (athletes, bucketCount, anchorDate) => {
+    const today = toStartOfDay(anchorDate);
     const counts = Array.from({ length: bucketCount }, () => null);
 
     athletes.forEach((athlete) => {
@@ -66,6 +90,44 @@ const buildRangeSeries = (athletes, bucketCount) => {
     return { categories, data: counts };
 };
 
+const formatMonthLabel = (year, month) => {
+    const date = new Date(year, month, 1);
+    return `${date.toLocaleString('default', { month: 'short' })} ${year}`;
+};
+
+const buildMonthlySeries = (athletes, monthCount, anchorDate) => {
+    const anchor = toStartOfDay(anchorDate);
+    const anchorMonthIndex = anchor.getFullYear() * 12 + anchor.getMonth();
+    const counts = Array.from({ length: monthCount }, () => null);
+
+    athletes.forEach((athlete) => {
+        if (!athlete || !athlete.inserted_at) return;
+        const athleteDate = toStartOfDay(athlete.inserted_at);
+        const athleteMonthIndex = athleteDate.getFullYear() * 12 + athleteDate.getMonth();
+        const monthsAgo = anchorMonthIndex - athleteMonthIndex;
+        if (monthsAgo < 0 || monthsAgo >= monthCount) return;
+
+        const bucketIndex = monthCount - 1 - monthsAgo;
+        counts[bucketIndex] = (counts[bucketIndex] || 0) + 1;
+    });
+
+    const categories = Array.from({ length: monthCount }, (_, idx) => {
+        const monthsAgo = monthCount - 1 - idx;
+        const totalMonthIndex = anchorMonthIndex - monthsAgo;
+        const year = Math.floor(totalMonthIndex / 12);
+        const month = ((totalMonthIndex % 12) + 12) % 12;
+        return formatMonthLabel(year, month);
+    });
+
+    return { categories, data: counts };
+};
+
+// Last calendar day of the given month, clamped so it never lands in the future
+const lastDayOfMonth = (year, month, notAfter) => {
+    const end = new Date(year, month + 1, 0);
+    return end > notAfter ? notAfter : end;
+};
+
 const Dashboard = (props) => {
     const [athletes, setAthletes] = useState([]);
     const [emptyGroups, setEmptyGroups] = useState([]);
@@ -76,6 +138,9 @@ const Dashboard = (props) => {
     const [form] = Form.useForm();
     const [confirmLoading, setConfirmLoading] = useState(false);
     const [rangeView, setRangeView] = useState('4D');
+    const [teamRangeView, setTeamRangeView] = useState('4D');
+    const [focusRange, setFocusRange] = useState(null);
+    const [monthAnchor, setMonthAnchor] = useState(null);
 
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -112,6 +177,9 @@ const Dashboard = (props) => {
     const handleAddEventGroup = () => {
         const tempId = `empty_${Date.now()}`;
         setEmptyGroups(prev => [...prev, { tempId, rawDate: '', isNew: true }]);
+        // Adding an event date always needs the full, unfiltered 4D view
+        setRangeView('4D');
+        setFocusRange(null);
     };
 
     const handleSaveNewGroup = (tempId, dateStr) => {
@@ -169,6 +237,34 @@ const Dashboard = (props) => {
         } catch (err) {
             console.error("Error deleting athlete:", err);
             message.error("An unexpected error occurred while deleting.");
+        }
+    };
+
+    const handleDeleteGroup = async (group) => {
+        try {
+            const ids = (group.athletes || []).map(a => a.id);
+            if (ids.length > 0) {
+                const { error } = await supabase
+                    .from('athletes')
+                    .delete()
+                    .in('id', ids);
+
+                if (error) {
+                    console.error("Supabase group delete error:", error);
+                    message.error("Failed to delete date group.");
+                    return;
+                }
+                setAthletes(prev => prev.filter(a => !ids.includes(a.id)));
+            }
+            if (group.tempId) {
+                setEmptyGroups(prev => prev.filter(g => g.tempId !== group.tempId));
+            } else if (group.rawDate) {
+                setEmptyGroups(prev => prev.filter(g => g.rawDate !== group.rawDate));
+            }
+            message.success("Date group removed.");
+        } catch (err) {
+            console.error("Error deleting date group:", err);
+            message.error("An unexpected error occurred while deleting the group.");
         }
     };
 
@@ -317,6 +413,39 @@ const Dashboard = (props) => {
     const handleChange = (value) => { console.log(`${value}`); };
     const onChange1 = (key) => { console.log(key); };
 
+    const handleRangeViewChange = (key) => {
+        setRangeView(key);
+        if (key === '4D') {
+            // Manually returning to 4D should show the default, unfiltered view
+            setFocusRange(null);
+        }
+        // Manually picking a tab always drops any chart-driven drill-down anchor
+        setMonthAnchor(null);
+    };
+
+    const handleRangeColumnClick = (bucketIndex) => {
+        const bucketCount = rangeChartConfig.buckets;
+        if (!Number.isFinite(bucketIndex) || !bucketCount) return;
+        const offset = (bucketCount - 1 - bucketIndex) * 4;
+        const endDate = addDays(rangeAnchor, -offset);
+        const startDate = addDays(endDate, -3);
+        setFocusRange({ start: toRawDateString(startDate), end: toRawDateString(endDate) });
+        setRangeView('4D');
+    };
+
+    const handleMonthColumnClick = (bucketIndex) => {
+        const bucketCount = rangeChartConfig.buckets;
+        if (!Number.isFinite(bucketIndex) || !bucketCount) return;
+        const today = toStartOfDay();
+        const todayMonthIndex = today.getFullYear() * 12 + today.getMonth();
+        const monthsAgo = bucketCount - 1 - bucketIndex;
+        const totalMonthIndex = todayMonthIndex - monthsAgo;
+        const year = Math.floor(totalMonthIndex / 12);
+        const month = ((totalMonthIndex % 12) + 12) % 12;
+        setMonthAnchor(lastDayOfMonth(year, month, today));
+        setRangeView('1M');
+    };
+
     const renderableAthletes = athletes.filter((athlete) => {
         const week = Number(athlete?.currentWeek);
         return Number.isFinite(week) && week >= 0;
@@ -324,14 +453,26 @@ const Dashboard = (props) => {
     const hasContent = renderableAthletes.length > 0 || emptyGroups.length > 0;
 
     const rangeChartConfig = RANGE_CONFIG[rangeView] || RANGE_CONFIG['4D'];
+    const rangeAnchor = rangeView === '1M' && monthAnchor ? monthAnchor : toStartOfDay();
     const rangeSeries = rangeChartConfig.mode === 'graph'
-        ? buildRangeSeries(renderableAthletes, rangeChartConfig.buckets)
+        ? (rangeChartConfig.unit === 'month'
+            ? buildMonthlySeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor)
+            : buildRangeSeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor))
         : null;
 
     const rangeChartOptions = rangeChartConfig.mode === 'graph' ? {
         chart: {
             type: 'bar',
             toolbar: { show: false },
+            events: {
+                dataPointSelection: (event, chartContext, config) => {
+                    if (rangeChartConfig.unit === 'month') {
+                        handleMonthColumnClick(config.dataPointIndex);
+                    } else {
+                        handleRangeColumnClick(config.dataPointIndex);
+                    }
+                },
+            },
         },
         plotOptions: {
             bar: {
@@ -373,6 +514,21 @@ const Dashboard = (props) => {
         label: item.label,
         children: null,
     }));
+
+    const teamRangeTabs = [
+        { key: '4D', label: '4D' },
+        { key: '1M', label: '1M' },
+        { key: '6M', label: '6M' },
+        { key: '1Y', label: '1Y' },
+    ].map((item) => ({
+        key: item.key,
+        label: item.label,
+        children: null,
+    }));
+
+    const uniqueAthleteNames = Array.from(
+        new Set(renderableAthletes.map((athlete) => athlete?.name).filter(Boolean))
+    );
 
     const metrics = [
         {
@@ -455,13 +611,14 @@ const Dashboard = (props) => {
                             <Tabs
                                 className="athlete-range-tabs"
                                 activeKey={rangeView}
-                                onChange={setRangeView}
+                                onChange={handleRangeViewChange}
                                 items={rangeTabs}
                             />
                             {rangeView === '4D' ? (
                                 <Timeline 
                                     athletes={renderableAthletes} 
                                     emptyGroups={emptyGroups}
+                                    focusRange={focusRange}
                                     setIndex={props.setIndex} 
                                     onEdit={handleEditAthlete}
                                     onDelete={handleDeleteAthlete}
@@ -469,6 +626,7 @@ const Dashboard = (props) => {
                                     onMoveAthlete={handleMoveAthlete}
                                     onSaveNewGroup={handleSaveNewGroup}
                                     onRemoveEmptyGroup={handleRemoveEmptyGroup}
+                                    onDeleteGroup={handleDeleteGroup}
                                 />
                             ) : (
                                 <div style={{ marginTop: 8 }}>
@@ -504,6 +662,29 @@ const Dashboard = (props) => {
                         />
                     ) : (
                         <>
+                            <Tabs
+                                className="team-range-tabs"
+                                activeKey={teamRangeView}
+                                onChange={setTeamRangeView}
+                                items={teamRangeTabs}
+                            />
+                            <div className="athlete-name-axis">
+                                {uniqueAthleteNames.map((name) => (
+                                    <span key={name} className="athlete-name-axis-tick">
+                                        <span
+                                            className="athlete-name-axis-dot"
+                                            style={{ backgroundColor: getColorForAthleteName(name) }}
+                                        />
+                                        <span
+                                            className="athlete-name-axis-label"
+                                            style={{ color: getColorForAthleteName(name) }}
+                                        >
+                                            {name}
+                                        </span>
+                                    </span>
+                                ))}
+                                <div className="athlete-name-axis-line" />
+                            </div>
                             <Row style={{ marginBottom: 16 }} justify="end">
                                 <Col className="card-filters">
                                     <Search id="search" placeholder="Search..." onSearch={onSearch} className="card-filter"/>

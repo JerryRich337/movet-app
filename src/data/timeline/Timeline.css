@@ -21,6 +21,24 @@
     transform: translateY(-50%);
 }
 
+.weeks-group-delete-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #E53935;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+}
+
 .weeks-group-header .ant-typography {
     margin: 0;
     text-align: center;
@@ -52,6 +70,18 @@
 .weeks-group-content {
   width: 100%;
   box-sizing: border-box;
+}
+
+.weeks-group-content .ant-card-body {
+  max-height: 720px; /* roughly 3 stacked athlete cards */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.weeks-group-content .ant-card-body::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .patient-card {
