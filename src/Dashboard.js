@@ -20,6 +20,14 @@ const RANGE_CONFIG = {
     '1Y': { label: '1Y', mode: 'graph', unit: 'day', buckets: 91 },
 };
 
+// Team Data graphs: date-based x axis (no event numbers), spacing/point counts per tab
+const TEAM_RANGE_CONFIG = {
+    '4D': { unit: 'day', buckets: 4, step: 1 },
+    '1M': { unit: 'day', buckets: 8, step: 4 },
+    '6M': { unit: 'month', buckets: 6, step: 1 },
+    '1Y': { unit: 'year', buckets: 6, step: 1 },
+};
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const ATHLETE_NAME_COLORS = [
@@ -36,6 +44,90 @@ const getColorForAthleteName = (name) => {
         hash = (hash * 31 + safeName.charCodeAt(i)) >>> 0;
     }
     return ATHLETE_NAME_COLORS[hash % ATHLETE_NAME_COLORS.length];
+};
+
+// Builds the date categories for a Team Data tab plus a lookup from an athlete's
+// inserted_at date to the bucket index it belongs in.
+const buildTeamRangeMeta = (config, anchor) => {
+    const { unit, buckets, step } = config;
+
+    if (unit === 'month') {
+        const anchorDate = toStartOfDay(anchor);
+        const anchorMonthIndex = anchorDate.getFullYear() * 12 + anchorDate.getMonth();
+        const categories = Array.from({ length: buckets }, (_, idx) => {
+            const monthsAgo = (buckets - 1 - idx) * step;
+            const totalMonthIndex = anchorMonthIndex - monthsAgo;
+            const year = Math.floor(totalMonthIndex / 12);
+            const month = ((totalMonthIndex % 12) + 12) % 12;
+            return formatMonthLabel(year, month);
+        });
+        const getBucketIndex = (date) => {
+            const athleteDate = toStartOfDay(date);
+            const athleteMonthIndex = athleteDate.getFullYear() * 12 + athleteDate.getMonth();
+            const monthsAgo = anchorMonthIndex - athleteMonthIndex;
+            if (monthsAgo < 0 || monthsAgo >= buckets * step) return -1;
+            const bucketIndex = buckets - 1 - Math.floor(monthsAgo / step);
+            return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+        };
+        return { categories, getBucketIndex };
+    }
+
+    if (unit === 'year') {
+        const anchorYear = toStartOfDay(anchor).getFullYear();
+        const categories = Array.from({ length: buckets }, (_, idx) => {
+            const yearsAgo = (buckets - 1 - idx) * step;
+            return String(anchorYear - yearsAgo);
+        });
+        const getBucketIndex = (date) => {
+            const athleteYear = toStartOfDay(date).getFullYear();
+            const yearsAgo = anchorYear - athleteYear;
+            if (yearsAgo < 0 || yearsAgo >= buckets * step) return -1;
+            const bucketIndex = buckets - 1 - Math.floor(yearsAgo / step);
+            return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+        };
+        return { categories, getBucketIndex };
+    }
+
+    // unit === 'day'
+    const today = toStartOfDay(anchor);
+    const categories = Array.from({ length: buckets }, (_, idx) => {
+        const offset = (buckets - 1 - idx) * step;
+        return formatDashboardDate(addDays(today, -offset));
+    });
+    const getBucketIndex = (date) => {
+        const athleteDate = toStartOfDay(date);
+        const diffDays = Math.floor((today.getTime() - athleteDate.getTime()) / MS_PER_DAY);
+        if (diffDays < 0 || diffDays >= buckets * step) return -1;
+        const bucketIndex = buckets - 1 - Math.floor(diffDays / step);
+        return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+    };
+    return { categories, getBucketIndex };
+};
+
+const buildTeamMetricSeries = (athletes, metricName, meta, bucketCount) => {
+    const seriesByAthlete = new Map();
+
+    athletes.forEach((athlete) => {
+        if (!athlete?.name || !athlete.inserted_at) return;
+
+        const metric = athlete.metricData?.find((item) => item.metric === metricName);
+        const value = metric?.data?.[metric.data.length - 1];
+        if (!Number.isFinite(Number(value))) return;
+
+        const bucketIndex = meta.getBucketIndex(athlete.inserted_at);
+        if (bucketIndex < 0) return;
+
+        if (!seriesByAthlete.has(athlete.name)) {
+            seriesByAthlete.set(athlete.name, Array(bucketCount).fill(null));
+        }
+
+        seriesByAthlete.get(athlete.name)[bucketIndex] = Number(value);
+    });
+
+    return Array.from(seriesByAthlete, ([name, data]) => ({
+        name,
+        data,
+    }));
 };
 
 const toStartOfDay = (value) => {
@@ -529,14 +621,48 @@ const Dashboard = (props) => {
     const uniqueAthleteNames = Array.from(
         new Set(renderableAthletes.map((athlete) => athlete?.name).filter(Boolean))
     );
+    const teamChartConfig = TEAM_RANGE_CONFIG[teamRangeView] || TEAM_RANGE_CONFIG['4D'];
+    const teamRangeMeta = buildTeamRangeMeta(teamChartConfig, new Date());
+    const teamMetricOptions = (baseOptions) => ({
+        ...baseOptions,
+        chart: {
+            ...baseOptions.chart,
+            toolbar: { show: false },
+        },
+        xaxis: {
+            ...baseOptions.xaxis,
+            categories: teamRangeMeta.categories,
+        },
+        colors: uniqueAthleteNames.map(getColorForAthleteName),
+        legend: { show: false },
+    });
+    const renderAthleteLegend = () => (
+        <div className="athlete-metric-legend" aria-label="Athlete legend">
+            {uniqueAthleteNames.map((name) => (
+                <span key={name} className="athlete-metric-legend-item">
+                    <span
+                        className="athlete-metric-legend-dot"
+                        style={{ backgroundColor: getColorForAthleteName(name) }}
+                    />
+                    <span
+                        className="athlete-metric-legend-label"
+                        style={{ color: getColorForAthleteName(name) }}
+                    >
+                        {name}
+                    </span>
+                </span>
+            ))}
+        </div>
+    );
 
     const metrics = [
         {
           key: '1',
           label: `Step Count`,
           children: (
-            <div>
-              <Graph options={stepCountAll} series={[]} type="line" />
+                        <div className="team-metric-chart">
+                            <Graph options={teamMetricOptions(stepCountAll)} series={buildTeamMetricSeries(renderableAthletes, 'Step Count', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            {renderAthleteLegend()}
             </div>
           ),
         },
@@ -544,8 +670,9 @@ const Dashboard = (props) => {
           key: '2',
           label: `Heart Rate`,
           children: (
-            <div>
-              <Graph options={heartRateAll} series={[]} type="line" />
+                        <div className="team-metric-chart">
+                            <Graph options={teamMetricOptions(heartRateAll)} series={buildTeamMetricSeries(renderableAthletes, 'Heart Rate', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            {renderAthleteLegend()}
             </div>
           ),
         },
@@ -553,8 +680,9 @@ const Dashboard = (props) => {
           key: '3',
           label: `Hrs of Rest`,
           children: (
-            <div>
-              <Graph options={hrsOfSleepAll} series={[]} type="line" />
+                        <div className="team-metric-chart">
+                            <Graph options={teamMetricOptions(hrsOfSleepAll)} series={buildTeamMetricSeries(renderableAthletes, 'Hrs of Rest', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            {renderAthleteLegend()}
             </div>
           ),
         },
@@ -668,23 +796,6 @@ const Dashboard = (props) => {
                                 onChange={setTeamRangeView}
                                 items={teamRangeTabs}
                             />
-                            <div className="athlete-name-axis">
-                                {uniqueAthleteNames.map((name) => (
-                                    <span key={name} className="athlete-name-axis-tick">
-                                        <span
-                                            className="athlete-name-axis-dot"
-                                            style={{ backgroundColor: getColorForAthleteName(name) }}
-                                        />
-                                        <span
-                                            className="athlete-name-axis-label"
-                                            style={{ color: getColorForAthleteName(name) }}
-                                        >
-                                            {name}
-                                        </span>
-                                    </span>
-                                ))}
-                                <div className="athlete-name-axis-line" />
-                            </div>
                             <Row style={{ marginBottom: 16 }} justify="end">
                                 <Col className="card-filters">
                                     <Search id="search" placeholder="Search..." onSearch={onSearch} className="card-filter"/>
