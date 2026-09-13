@@ -48,6 +48,31 @@ h6 {
   margin-right: 15px;
 }
 
+/* existing-athlete picker inside the Manual Athlete Entry modal: keep the modal
+   itself from growing and instead scroll within the list once it overflows */
+.existing-athlete-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.existing-athlete-list-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+}
+
+.existing-athlete-list-item:last-child {
+  border-bottom: none;
+}
+
+.existing-athlete-list-item:hover {
+  background-color: #f5f0f6;
+  color: #904199;
+}
+
 #search {
  width: 180px;
 }
@@ -484,6 +509,15 @@ h6 {
 .patient-header .apexcharts-xaxistooltip,
 .patient-header .apexcharts-xaxistooltip-text,
 .patient-header .apexcharts-xaxistooltip-bottom {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* team metric charts: remove the x-axis date tooltip entirely; the data
+   tooltip is shown only when hovering directly over a point (see Axes.js
+   tooltip.intersect config) */
+.team-metric-chart .apexcharts-xaxistooltip {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;

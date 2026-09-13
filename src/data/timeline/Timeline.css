@@ -99,7 +99,7 @@
   .weeks-group .patient-card .ant-card-head-title {
     min-width: 0;
     font-size: clamp(11px, 1.3cqw, 16px);
-    line-height: 1.2;
+    line-height: 1.35;
   }
 
   .weeks-group .patient-card .ant-card-extra {

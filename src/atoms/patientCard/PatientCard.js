@@ -107,15 +107,20 @@ function PatientCard(props) {
               const latestValue = data && Array.isArray(data.data) && data.data.length > 0
                 ? data.data[data.data.length - 1]
                 : data.avg;
-              const trendText = `${parts.int}${parts.dec ? `.${parts.dec}` : ''}% change`;
+              const valueSuffix = data.metric === 'Heart Rate'
+                ? 'BPM'
+                : data.metric === 'Hrs of Rest'
+                  ? 'Hrs Rest'
+                  : 'Steps';
               return <StatisticRow 
                         key={idx}
                         metric={data.metric}
                         value={latestValue}
+                        valueSuffix={valueSuffix}
                         percentage={parts.int}
                         decimal={parts.dec}
                         arrow={data.arrow}
-                        trendText={trendText}
+                        trendText={null}
                         />
             })}
             <Divider/>

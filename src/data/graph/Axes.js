@@ -35,6 +35,8 @@ const stepCountAll = {
       hover: { size: 6 }
     },
     tooltip: {
+      shared: false,
+      intersect: true,
       marker: { show: true }
     },
     // colors: ["#fbaf5d", "#fbaf5d", "#52c41a", "#f37f89", "#52c41a"],
@@ -102,6 +104,8 @@ const stepCountAnnotated = {
       hover: { size: 6 }
     },
     tooltip: {
+      shared: false,
+      intersect: true,
       marker: { show: true }
     },
     // colors: ["#fbaf5d", "#fbaf5d", "#52c41a", "#f37f89", "#52c41a"],
@@ -172,6 +176,8 @@ const hrsOfSleepAll = {
       hover: { size: 6 }
     },
     tooltip: {
+      shared: false,
+      intersect: true,
       marker: { show: true }
     },
     // colors: ["#fbaf5d", "#fbaf5d", "#52c41a", "#f37f89", "#52c41a"],

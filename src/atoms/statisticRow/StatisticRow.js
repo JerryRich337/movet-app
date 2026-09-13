@@ -87,7 +87,10 @@ function StatisticRow(props) {
         <div className='patient-card-value'>
         <span className='patient-card-arrow'>{arrowType}</span>
         <div className='patient-card-percentage'>
-                        <Title level={3}>{displayValue}</Title>
+                        <Title level={3}>
+                            {displayValue}
+                            {props.valueSuffix ? <span className="patient-card-value-suffix"> {props.valueSuffix}</span> : null}
+                        </Title>
                         {props.trendText ? <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{props.trendText}</Title> : null}
         </div>
         </div>

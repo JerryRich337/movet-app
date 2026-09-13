@@ -104,8 +104,10 @@ const buildTeamRangeMeta = (config, anchor) => {
     return { categories, getBucketIndex };
 };
 
-const buildTeamMetricSeries = (athletes, metricName, meta, bucketCount) => {
-    const seriesByAthlete = new Map();
+// Groups every metric value an athlete has landing in each x-axis bucket (instead of
+// collapsing to one), so multiple same-date entries can all be plotted.
+const buildTeamMetricBuckets = (athletes, metricName, meta, bucketCount) => {
+    const bucketsByAthlete = new Map();
 
     athletes.forEach((athlete) => {
         if (!athlete?.name || !athlete.inserted_at) return;
@@ -117,20 +119,88 @@ const buildTeamMetricSeries = (athletes, metricName, meta, bucketCount) => {
         const bucketIndex = meta.getBucketIndex(athlete.inserted_at);
         if (bucketIndex < 0) return;
 
-        if (!seriesByAthlete.has(athlete.name)) {
-            seriesByAthlete.set(athlete.name, Array(bucketCount).fill(null));
+        if (!bucketsByAthlete.has(athlete.name)) {
+            bucketsByAthlete.set(athlete.name, Array.from({ length: bucketCount }, () => []));
         }
 
-        seriesByAthlete.get(athlete.name)[bucketIndex] = Number(value);
+        bucketsByAthlete.get(athlete.name)[bucketIndex].push(Number(value));
     });
 
-    return Array.from(seriesByAthlete, ([name, data]) => ({
-        name,
-        data,
-    }));
+    return bucketsByAthlete;
+};
+
+// Builds the connected line series (defaulting to each bucket's highest value, or a
+// user-clicked override) plus extra marker-only "duplicate slot" series for any other
+// same-bucket values, so they can be hovered/clicked without being part of the line.
+const buildTeamMetricChartData = (athletes, metricName, meta, bucketCount, athleteNames, selections, selectionScope) => {
+    const bucketsByAthlete = buildTeamMetricBuckets(athletes, metricName, meta, bucketCount);
+
+    let maxLeftover = 0;
+    const perAthlete = athleteNames.map((name) => {
+        const buckets = bucketsByAthlete.get(name) || Array.from({ length: bucketCount }, () => []);
+        const mainData = Array(bucketCount).fill(null);
+        const leftoverByBucket = Array.from({ length: bucketCount }, () => []);
+
+        buckets.forEach((values, bucketIndex) => {
+            if (!values.length) return;
+            const sorted = [...values].sort((a, b) => b - a);
+            const key = `${metricName}::${name}::${selectionScope}::${bucketIndex}`;
+            const override = selections[key];
+            const selectedValue = (override !== undefined && values.includes(override))
+                ? override
+                : sorted[0];
+
+            mainData[bucketIndex] = selectedValue;
+
+            const remaining = [...values];
+            const selectedPos = remaining.indexOf(selectedValue);
+            if (selectedPos !== -1) remaining.splice(selectedPos, 1);
+            leftoverByBucket[bucketIndex] = remaining;
+            if (remaining.length > maxLeftover) maxLeftover = remaining.length;
+        });
+
+        return { name, mainData, leftoverByBucket };
+    });
+
+    const series = [];
+    const colors = [];
+    const strokeWidths = [];
+    const markerSizes = [];
+
+    perAthlete.forEach(({ name, mainData }) => {
+        series.push({ name, data: mainData });
+        colors.push(getColorForAthleteName(name));
+        strokeWidths.push(2);
+        markerSizes.push(4);
+    });
+
+    // Duplicate slot markers get a slightly larger hit target so same-date points
+    // that are close in value are still easy to click individually.
+    for (let slot = 0; slot < maxLeftover; slot++) {
+        perAthlete.forEach(({ name, leftoverByBucket }) => {
+            const slotData = leftoverByBucket.map((values) => (values[slot] !== undefined ? values[slot] : null));
+            series.push({ name, data: slotData, isDuplicateSlot: true, athleteName: name });
+            colors.push(getColorForAthleteName(name));
+            strokeWidths.push(0);
+            markerSizes.push(5);
+        });
+    }
+
+    return { series, colors, strokeWidths, markerSizes };
 };
 
 const toStartOfDay = (value) => {
+    if (typeof value === 'string') {
+        const calendarDate = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (calendarDate) {
+            return new Date(
+                Number(calendarDate[1]),
+                Number(calendarDate[2]) - 1,
+                Number(calendarDate[3])
+            );
+        }
+    }
+
     const date = value ? new Date(value) : new Date();
     if (Number.isNaN(date.getTime())) return new Date();
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -254,6 +324,8 @@ const Dashboard = (props) => {
     const [teamRangeView, setTeamRangeView] = useState('4D');
     const [focusRange, setFocusRange] = useState(null);
     const [monthAnchor, setMonthAnchor] = useState(null);
+    const [existingAthleteSearch, setExistingAthleteSearch] = useState('');
+    const [duplicatePointSelections, setDuplicatePointSelections] = useState({});
 
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -284,6 +356,7 @@ const Dashboard = (props) => {
     const showModal = () => {
         setEditingAthlete(null);
         setModalMode("menu");
+        setExistingAthleteSearch('');
         setIsModalOpen(true);
     };
 
@@ -338,6 +411,25 @@ const Dashboard = (props) => {
         setIsModalOpen(true);
     };
 
+    const handleSelectExistingAthlete = (athlete) => {
+        const nameParts = athlete.name ? athlete.name.split(', ') : ['', ''];
+        const lastName = nameParts[0] || '';
+        const firstName = nameParts[1] || '';
+
+        form.setFieldsValue({
+            firstName: firstName,
+            lastName: lastName,
+            dob: athlete.dob,
+            age: athlete.age,
+            phone: athlete.phone,
+            activeness: athlete.pfTags?.[0] || 'good',
+            pain: athlete.piTags?.[0] || 'good',
+        });
+
+        setExistingAthleteSearch('');
+        setModalMode("manual");
+    };
+
     const handleDeleteAthlete = async (athlete) => {
         try {
             const { error } = await supabase
@@ -389,6 +481,7 @@ const Dashboard = (props) => {
     const handleCancel = () => {
         setIsModalOpen(false);
         setEditingAthlete(null);
+        setExistingAthleteSearch('');
         form.resetFields();
     };
 
@@ -587,6 +680,22 @@ const Dashboard = (props) => {
     });
     const hasContent = renderableAthletes.length > 0 || emptyGroups.length > 0;
 
+    // One entry per athlete name, keeping the most recently inserted record for prefill
+    const uniqueExistingAthletes = Array.from(
+        athletes.reduce((map, athlete) => {
+            if (!athlete?.name) return map;
+            const existing = map.get(athlete.name);
+            if (!existing || new Date(athlete.inserted_at) > new Date(existing.inserted_at)) {
+                map.set(athlete.name, athlete);
+            }
+            return map;
+        }, new Map()).values()
+    ).sort((a, b) => a.name.localeCompare(b.name));
+
+    const filteredExistingAthletes = uniqueExistingAthletes.filter((athlete) =>
+        athlete.name.toLowerCase().includes(existingAthleteSearch.trim().toLowerCase())
+    );
+
     const rangeChartConfig = RANGE_CONFIG[rangeView] || RANGE_CONFIG['4D'];
     const rangeAnchor = (rangeView === '1M' || rangeView === '6M') && monthAnchor
         ? monthAnchor
@@ -670,19 +779,53 @@ const Dashboard = (props) => {
     );
     const teamChartConfig = TEAM_RANGE_CONFIG[teamRangeView] || TEAM_RANGE_CONFIG['4D'];
     const teamRangeMeta = buildTeamRangeMeta(teamChartConfig, new Date());
-    const teamMetricOptions = (baseOptions) => ({
+
+    // Clicking a non-connected duplicate point moves the line to that value instead.
+    // Deferred via setTimeout so ApexCharts finishes its own click/tooltip handling
+    // (which touches the clicked marker's DOM node) before React re-renders the chart.
+    const handleTeamPointClick = (metricName, config) => {
+        try {
+            const seriesMeta = config?.w?.config?.series?.[config.seriesIndex];
+            if (!seriesMeta?.isDuplicateSlot) return;
+            const value = seriesMeta.data?.[config.dataPointIndex];
+            if (value === null || value === undefined) return;
+            const key = `${metricName}::${seriesMeta.athleteName}::${teamRangeView}::${config.dataPointIndex}`;
+            setTimeout(() => {
+                setDuplicatePointSelections((prev) => ({ ...prev, [key]: value }));
+            }, 0);
+        } catch (err) {
+            console.warn('Error handling team chart point click:', err);
+        }
+    };
+
+    const teamMetricOptions = (baseOptions, chartData, metricName) => ({
         ...baseOptions,
         chart: {
             ...baseOptions.chart,
             toolbar: { show: false },
+            events: {
+                dataPointSelection: (event, chartContext, config) => handleTeamPointClick(metricName, config),
+            },
         },
         xaxis: {
             ...baseOptions.xaxis,
             categories: teamRangeMeta.categories,
         },
-        colors: uniqueAthleteNames.map(getColorForAthleteName),
+        stroke: {
+            ...baseOptions.stroke,
+            width: chartData.strokeWidths,
+        },
+        markers: {
+            ...baseOptions.markers,
+            size: chartData.markerSizes,
+        },
+        colors: chartData.colors,
         legend: { show: false },
     });
+
+    const stepCountChartData = buildTeamMetricChartData(renderableAthletes, 'Step Count', teamRangeMeta, teamChartConfig.buckets, uniqueAthleteNames, duplicatePointSelections, teamRangeView);
+    const heartRateChartData = buildTeamMetricChartData(renderableAthletes, 'Heart Rate', teamRangeMeta, teamChartConfig.buckets, uniqueAthleteNames, duplicatePointSelections, teamRangeView);
+    const hrsOfSleepChartData = buildTeamMetricChartData(renderableAthletes, 'Hrs of Rest', teamRangeMeta, teamChartConfig.buckets, uniqueAthleteNames, duplicatePointSelections, teamRangeView);
     const renderAthleteLegend = () => (
         <div className="athlete-metric-legend" aria-label="Athlete legend">
             {uniqueAthleteNames.map((name) => (
@@ -708,7 +851,7 @@ const Dashboard = (props) => {
           label: `Step Count`,
           children: (
                         <div className="team-metric-chart">
-                            <Graph options={teamMetricOptions(stepCountAll)} series={buildTeamMetricSeries(renderableAthletes, 'Step Count', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            <Graph options={teamMetricOptions(stepCountAll, stepCountChartData, 'Step Count')} series={stepCountChartData.series} type="line" />
                             {renderAthleteLegend()}
             </div>
           ),
@@ -718,7 +861,7 @@ const Dashboard = (props) => {
           label: `Heart Rate`,
           children: (
                         <div className="team-metric-chart">
-                            <Graph options={teamMetricOptions(heartRateAll)} series={buildTeamMetricSeries(renderableAthletes, 'Heart Rate', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            <Graph options={teamMetricOptions(heartRateAll, heartRateChartData, 'Heart Rate')} series={heartRateChartData.series} type="line" />
                             {renderAthleteLegend()}
             </div>
           ),
@@ -728,7 +871,7 @@ const Dashboard = (props) => {
           label: `Hrs of Rest`,
           children: (
                         <div className="team-metric-chart">
-                            <Graph options={teamMetricOptions(hrsOfSleepAll)} series={buildTeamMetricSeries(renderableAthletes, 'Hrs of Rest', teamRangeMeta, teamChartConfig.buckets)} type="line" />
+                            <Graph options={teamMetricOptions(hrsOfSleepAll, hrsOfSleepChartData, 'Hrs of Rest')} series={hrsOfSleepChartData.series} type="line" />
                             {renderAthleteLegend()}
             </div>
           ),
@@ -870,7 +1013,19 @@ const Dashboard = (props) => {
 
             {/* Add/Edit Athlete Modal */}
             <Modal 
-                title={editingAthlete ? "Edit Athlete Entry" : (modalMode === "menu" ? "Add Athlete Data" : "Manual Athlete Entry")} 
+                title={editingAthlete ? "Edit Athlete Entry" : (
+                    modalMode === "menu" ? "Add Athlete Data" : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", paddingRight: "24px" }}>
+                            <span>Manual Athlete Entry</span>
+                            <Button
+                                size="small"
+                                onClick={() => setModalMode(modalMode === "existing" ? "manual" : "existing")}
+                            >
+                                {modalMode === "existing" ? "New Athlete" : "Existing Athlete"}
+                            </Button>
+                        </div>
+                    )
+                )} 
                 open={isModalOpen} 
                 onCancel={handleCancel} 
                 footer={null}
@@ -905,6 +1060,31 @@ const Dashboard = (props) => {
                             >
                                 Enter Data Manually
                             </Button>
+                        </div>
+                    </div>
+                ) : modalMode === "existing" && !editingAthlete ? (
+                    <div style={{ padding: "10px 0" }}>
+                        <Search
+                            placeholder="Search athletes..."
+                            allowClear
+                            value={existingAthleteSearch}
+                            onChange={(e) => setExistingAthleteSearch(e.target.value)}
+                            style={{ marginBottom: "12px" }}
+                        />
+                        <div className="existing-athlete-list">
+                            {filteredExistingAthletes.length > 0 ? (
+                                filteredExistingAthletes.map((athlete) => (
+                                    <div
+                                        key={athlete.id}
+                                        className="existing-athlete-list-item"
+                                        onClick={() => handleSelectExistingAthlete(athlete)}
+                                    >
+                                        {athlete.name}
+                                    </div>
+                                ))
+                            ) : (
+                                <Empty description="No matching athletes" style={{ padding: "24px 0" }} />
+                            )}
                         </div>
                     </div>
                 ) : (
