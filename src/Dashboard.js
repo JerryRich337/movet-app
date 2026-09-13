@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import './App.css';
 import 'antd/dist/reset.css';
-import { Layout, Card, Typography, Row, Col, Input, Select, Tabs, Empty, Spin, Button, Modal, Upload, message, Form, InputNumber } from 'antd';
+import { Layout, Card, Typography, Row, Col, Input, Select, Tabs, Empty, Spin, Button, Modal, Upload, message, Form, InputNumber, Radio } from 'antd';
 import { PlusOutlined, UploadOutlined, EditOutlined } from '@ant-design/icons';
 import Graph from "./atoms/graph/Graph";
 import { stepCountAll, heartRateAll, hrsOfSleepAll } from "./data/graph/Axes";
@@ -17,7 +17,7 @@ const RANGE_CONFIG = {
     '4D': { label: '4D', mode: 'cards' },
     '1M': { label: '1M', mode: 'graph', unit: 'day', buckets: 8 },
     '6M': { label: '6M', mode: 'graph', unit: 'month', buckets: 6 },
-    '1Y': { label: '1Y', mode: 'graph', unit: 'day', buckets: 91 },
+    '1Y': { label: '1Y', mode: 'graph', unit: 'year', buckets: 6 },
 };
 
 // Team Data graphs: date-based x axis (no event numbers), spacing/point counts per tab
@@ -214,6 +214,27 @@ const buildMonthlySeries = (athletes, monthCount, anchorDate) => {
     return { categories, data: counts };
 };
 
+const buildYearlySeries = (athletes, yearCount, anchorDate) => {
+    const anchorYear = toStartOfDay(anchorDate).getFullYear();
+    const counts = Array.from({ length: yearCount }, () => null);
+
+    athletes.forEach((athlete) => {
+        if (!athlete || !athlete.inserted_at) return;
+        const athleteYear = toStartOfDay(athlete.inserted_at).getFullYear();
+        const yearsAgo = anchorYear - athleteYear;
+        if (yearsAgo < 0 || yearsAgo >= yearCount) return;
+
+        const bucketIndex = yearCount - 1 - yearsAgo;
+        counts[bucketIndex] = (counts[bucketIndex] || 0) + 1;
+    });
+
+    const categories = Array.from({ length: yearCount }, (_, idx) => (
+        String(anchorYear - (yearCount - 1 - idx))
+    ));
+
+    return { categories, data: counts };
+};
+
 // Last calendar day of the given month, clamped so it never lands in the future
 const lastDayOfMonth = (year, month, notAfter) => {
     const end = new Date(year, month + 1, 0);
@@ -303,6 +324,11 @@ const Dashboard = (props) => {
         form.setFieldsValue({
             firstName: firstName,
             lastName: lastName,
+            dob: athlete.dob,
+            age: athlete.age,
+            phone: athlete.phone,
+            activeness: athlete.pfTags?.[0] || 'good',
+            pain: athlete.piTags?.[0] || 'good',
             stepCount: stepMetric ? stepMetric.data[stepMetric.data.length - 1] : 0,
             heartRate: hrMetric ? hrMetric.data[hrMetric.data.length - 1] : 0,
             hrsOfRest: restMetric ? restMetric.data[restMetric.data.length - 1] : 0,
@@ -405,6 +431,11 @@ const Dashboard = (props) => {
             if (editingAthlete) {
                 const updatedFields = {
                     name: formattedName,
+                    dob: values.dob,
+                    age: values.age,
+                    phone: values.phone,
+                    pfTags: [values.activeness],
+                    piTags: [values.pain],
                     metricData: newMetricData,
                 };
 
@@ -428,9 +459,12 @@ const Dashboard = (props) => {
                 const newAthleteRecord = {
                     user_id: user.id,
                     name: formattedName,
+                    dob: values.dob,
+                    age: values.age,
+                    phone: values.phone,
                     metricData: newMetricData,
-                    pfTags: ['moderate'],
-                    piTags: ['moderate'],
+                    pfTags: [values.activeness],
+                    piTags: [values.pain],
                     dotColor: '#52c41a',
                     currentWeek: 1,
                 };
@@ -518,6 +552,15 @@ const Dashboard = (props) => {
     const handleRangeColumnClick = (bucketIndex) => {
         const bucketCount = rangeChartConfig.buckets;
         if (!Number.isFinite(bucketIndex) || !bucketCount) return;
+
+        if (rangeChartConfig.unit === 'year') {
+            const currentYear = toStartOfDay().getFullYear();
+            const selectedYear = currentYear - (bucketCount - 1 - bucketIndex);
+            setMonthAnchor(lastDayOfMonth(selectedYear, 11, toStartOfDay()));
+            setRangeView('6M');
+            return;
+        }
+
         const offset = (bucketCount - 1 - bucketIndex) * 4;
         const endDate = addDays(rangeAnchor, -offset);
         const startDate = addDays(endDate, -3);
@@ -545,11 +588,15 @@ const Dashboard = (props) => {
     const hasContent = renderableAthletes.length > 0 || emptyGroups.length > 0;
 
     const rangeChartConfig = RANGE_CONFIG[rangeView] || RANGE_CONFIG['4D'];
-    const rangeAnchor = rangeView === '1M' && monthAnchor ? monthAnchor : toStartOfDay();
+    const rangeAnchor = (rangeView === '1M' || rangeView === '6M') && monthAnchor
+        ? monthAnchor
+        : toStartOfDay();
     const rangeSeries = rangeChartConfig.mode === 'graph'
         ? (rangeChartConfig.unit === 'month'
             ? buildMonthlySeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor)
-            : buildRangeSeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor))
+            : rangeChartConfig.unit === 'year'
+                ? buildYearlySeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor)
+                : buildRangeSeries(renderableAthletes, rangeChartConfig.buckets, rangeAnchor))
         : null;
 
     const rangeChartOptions = rangeChartConfig.mode === 'graph' ? {
@@ -887,6 +934,59 @@ const Dashboard = (props) => {
                                 </Form.Item>
                             </Col>
                         </Row>
+
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Form.Item
+                                    label="DOB"
+                                    name="dob"
+                                    rules={[{ required: true, message: 'Please enter date of birth' }]}
+                                >
+                                    <Input type="date" />
+                                </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                                <Form.Item
+                                    label="Age"
+                                    name="age"
+                                    rules={[{ required: true, message: 'Please enter age' }]}
+                                >
+                                    <InputNumber min={0} precision={0} placeholder="e.g. 28" style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+
+                        <Form.Item
+                            label="Phone"
+                            name="phone"
+                            rules={[{ required: true, message: 'Please enter phone number' }]}
+                        >
+                            <Input type="tel" placeholder="e.g. (555) 123-4567" />
+                        </Form.Item>
+
+                        <Form.Item
+                            label="Activeness"
+                            name="activeness"
+                            rules={[{ required: true, message: 'Please select activeness' }]}
+                        >
+                            <Radio.Group className="status-selection" optionType="button" buttonStyle="solid">
+                                <Radio.Button value="poor" className="status-choice status-choice-red">Red</Radio.Button>
+                                <Radio.Button value="moderate" className="status-choice status-choice-yellow">Yellow</Radio.Button>
+                                <Radio.Button value="good" className="status-choice status-choice-green">Green</Radio.Button>
+                            </Radio.Group>
+                        </Form.Item>
+
+                        <Form.Item
+                            label="Pain"
+                            name="pain"
+                            rules={[{ required: true, message: 'Please select pain level' }]}
+                        >
+                            <Radio.Group className="status-selection" optionType="button" buttonStyle="solid">
+                                <Radio.Button value="poor" className="status-choice status-choice-red">Red</Radio.Button>
+                                <Radio.Button value="moderate" className="status-choice status-choice-yellow">Yellow</Radio.Button>
+                                <Radio.Button value="good" className="status-choice status-choice-green">Green</Radio.Button>
+                            </Radio.Group>
+                        </Form.Item>
 
                         <Form.Item
                             label="Step Count"
