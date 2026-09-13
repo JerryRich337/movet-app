@@ -819,6 +819,11 @@ const Dashboard = (props) => {
             ...baseOptions.markers,
             size: chartData.markerSizes,
         },
+        // Disable the grey hover/active highlight ring ApexCharts draws around markers
+        states: {
+            hover: { filter: { type: 'none' } },
+            active: { filter: { type: 'none' } },
+        },
         colors: chartData.colors,
         legend: { show: false },
     });

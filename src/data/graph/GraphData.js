@@ -50,7 +50,7 @@ const athleteFitbitGraphOptions = {
         intersect: false,
         y: {
           formatter: function (y) {
-            if (typeof y !== "undefined") {
+            if (typeof y !== "undefined" && y !== null) {
               return y.toFixed(0);
             }
             return y;

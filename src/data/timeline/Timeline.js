@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './Timeline.css';
 import { Typography, Row, Col, Badge, Card, Input, Tooltip } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
@@ -123,6 +123,28 @@ function TimelineColumn({ group, isNewGroup, isFocus, tempId, setIndex, onEdit, 
   const [inputValue, setInputValue] = useState(group.displayDate || '');
   const [isInvalid, setIsInvalid] = useState(false);
   const [isDateHovered, setIsDateHovered] = useState(false);
+  const dateHoverTimeoutRef = useRef(null);
+
+  useEffect(() => () => {
+    if (dateHoverTimeoutRef.current) clearTimeout(dateHoverTimeoutRef.current);
+  }, []);
+
+  const handleDateHoverStart = () => {
+    if (dateHoverTimeoutRef.current) {
+      clearTimeout(dateHoverTimeoutRef.current);
+      dateHoverTimeoutRef.current = null;
+    }
+    setIsDateHovered(true);
+  };
+
+  // Delay hiding the delete button so moving the cursor from the date to the
+  // button (or briefly off it) doesn't make it vanish immediately.
+  const handleDateHoverEnd = () => {
+    dateHoverTimeoutRef.current = setTimeout(() => {
+      setIsDateHovered(false);
+      dateHoverTimeoutRef.current = null;
+    }, 400);
+  };
 
   useEffect(() => {
     if (!isEditing) {
@@ -217,8 +239,8 @@ function TimelineColumn({ group, isNewGroup, isFocus, tempId, setIndex, onEdit, 
                 setInputValue(group.displayDate || '');
                 setIsInvalid(false);
               }}
-              onMouseEnter={() => setIsDateHovered(true)}
-              onMouseLeave={() => setIsDateHovered(false)}
+              onMouseEnter={() => handleDateHoverStart()}
+              onMouseLeave={() => handleDateHoverEnd()}
               style={{ 
                 cursor: 'pointer', 
                 padding: '2px 6px', 
@@ -256,8 +278,8 @@ function TimelineColumn({ group, isNewGroup, isFocus, tempId, setIndex, onEdit, 
           <span
             className="weeks-group-delete-btn"
             title="Delete this date and its cards"
-            onMouseEnter={() => setIsDateHovered(true)}
-            onMouseLeave={() => setIsDateHovered(false)}
+            onMouseEnter={() => handleDateHoverStart()}
+            onMouseLeave={() => handleDateHoverEnd()}
             onClick={() => onDeleteGroup && onDeleteGroup(group)}
           >
             <CloseOutlined />

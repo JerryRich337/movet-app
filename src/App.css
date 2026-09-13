@@ -73,6 +73,13 @@ h6 {
   color: #904199;
 }
 
+/* remove ApexCharts' default grey hover/active highlight filter around markers app-wide */
+.apexcharts-marker,
+.apexcharts-series-markers .apexcharts-marker,
+.apexcharts-series-markers .apexcharts-nullpoint {
+  filter: none !important;
+}
+
 #search {
  width: 180px;
 }

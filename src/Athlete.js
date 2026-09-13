@@ -7,9 +7,122 @@ import 'antd/dist/reset.css';
 import { Layout, Card, Row, Col, Typography, Segmented, Tooltip, Tabs, Button } from 'antd';
 import { stepCountData, heartRateData, hrsOfSleepData, physicalFuncData, painInterData, athleteFitbitGraphOptions } from "./data/graph/GraphData";
 import athleteData from "./data/athleteData";
+import { supabase } from "./supabaseClient";
 
 const { Title } = Typography;
 const { Content } = Layout;
+
+// Same date-bucket granularity as the Dashboard Team Data graph (4D/1M/6M/1Y)
+const DEVICE_RANGE_CONFIG = {
+    '4D': { unit: 'day', buckets: 4, step: 1 },
+    '1M': { unit: 'day', buckets: 8, step: 4 },
+    '6M': { unit: 'month', buckets: 6, step: 1 },
+    '1Y': { unit: 'year', buckets: 6, step: 1 },
+};
+
+const deviceToStartOfDay = (value) => {
+    if (typeof value === 'string') {
+        const calendarDate = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (calendarDate) {
+            return new Date(Number(calendarDate[1]), Number(calendarDate[2]) - 1, Number(calendarDate[3]));
+        }
+    }
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return new Date();
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const deviceFormatMonthLabel = (year, month) => {
+    const date = new Date(year, month, 1);
+    return `${date.toLocaleString('default', { month: 'short' })} ${year}`;
+};
+
+const deviceFormatDate = (date) => {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day}`;
+};
+
+// Builds x-axis categories plus a lookup from an entry's inserted_at date to its bucket index,
+// mirroring Dashboard.js's buildTeamRangeMeta but scoped to a single athlete's own records.
+const buildDeviceRangeMeta = (config, anchor) => {
+    const { unit, buckets, step } = config;
+
+    if (unit === 'month') {
+        const anchorDate = deviceToStartOfDay(anchor);
+        const anchorMonthIndex = anchorDate.getFullYear() * 12 + anchorDate.getMonth();
+        const categories = Array.from({ length: buckets }, (_, idx) => {
+            const monthsAgo = (buckets - 1 - idx) * step;
+            const totalMonthIndex = anchorMonthIndex - monthsAgo;
+            const year = Math.floor(totalMonthIndex / 12);
+            const month = ((totalMonthIndex % 12) + 12) % 12;
+            return deviceFormatMonthLabel(year, month);
+        });
+        const getBucketIndex = (date) => {
+            const athleteDate = deviceToStartOfDay(date);
+            const athleteMonthIndex = athleteDate.getFullYear() * 12 + athleteDate.getMonth();
+            const monthsAgo = anchorMonthIndex - athleteMonthIndex;
+            if (monthsAgo < 0 || monthsAgo >= buckets * step) return -1;
+            const bucketIndex = buckets - 1 - Math.floor(monthsAgo / step);
+            return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+        };
+        return { categories, getBucketIndex };
+    }
+
+    if (unit === 'year') {
+        const anchorYear = deviceToStartOfDay(anchor).getFullYear();
+        const categories = Array.from({ length: buckets }, (_, idx) => {
+            const yearsAgo = (buckets - 1 - idx) * step;
+            return String(anchorYear - yearsAgo);
+        });
+        const getBucketIndex = (date) => {
+            const athleteYear = deviceToStartOfDay(date).getFullYear();
+            const yearsAgo = anchorYear - athleteYear;
+            if (yearsAgo < 0 || yearsAgo >= buckets * step) return -1;
+            const bucketIndex = buckets - 1 - Math.floor(yearsAgo / step);
+            return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+        };
+        return { categories, getBucketIndex };
+    }
+
+    // unit === 'day'
+    const today = deviceToStartOfDay(anchor);
+    const categories = Array.from({ length: buckets }, (_, idx) => {
+        const offset = (buckets - 1 - idx) * step;
+        const d = new Date(today);
+        d.setDate(d.getDate() - offset);
+        return deviceFormatDate(d);
+    });
+    const getBucketIndex = (date) => {
+        const athleteDate = deviceToStartOfDay(date);
+        const diffDays = Math.floor((today.getTime() - athleteDate.getTime()) / (24 * 60 * 60 * 1000));
+        if (diffDays < 0 || diffDays >= buckets * step) return -1;
+        const bucketIndex = buckets - 1 - Math.floor(diffDays / step);
+        return bucketIndex >= 0 && bucketIndex < buckets ? bucketIndex : -1;
+    };
+    return { categories, getBucketIndex };
+};
+
+// Aggregates every record sharing this athlete's name into per-bucket values. Multiple
+// entries landing in the same bucket are averaged (columns have no "connection" to
+// resolve, unlike the Team Data line chart).
+const buildDeviceMetricSeries = (records, metricName, meta, bucketCount) => {
+    const sums = Array(bucketCount).fill(0);
+    const counts = Array(bucketCount).fill(0);
+
+    records.forEach((record) => {
+        if (!record?.inserted_at) return;
+        const metric = record.metricData?.find((item) => item.metric === metricName);
+        const value = metric?.data?.[metric.data.length - 1];
+        if (!Number.isFinite(Number(value))) return;
+        const bucketIndex = meta.getBucketIndex(record.inserted_at);
+        if (bucketIndex < 0) return;
+        sums[bucketIndex] += Number(value);
+        counts[bucketIndex] += 1;
+    });
+
+    return sums.map((sum, idx) => (counts[idx] > 0 ? Math.round((sum / counts[idx]) * 100) / 100 : null));
+};
   
 
 const Athlete = (props) => {
@@ -23,6 +136,52 @@ const Athlete = (props) => {
       }, [])
 
         const [value, setValue] = useState('Last Week');
+        const [deviceRangeView, setDeviceRangeView] = useState('4D');
+        const [athleteGroupRecords, setAthleteGroupRecords] = useState(null);
+
+        // Pull every card sharing this athlete's name so Monitor Device Data reflects all of them
+        useEffect(() => {
+            const fetchAthleteGroup = async () => {
+                if (!selectedAthlete?.name) return;
+                try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    const { data, error } = await supabase
+                        .from('athletes')
+                        .select('*')
+                        .eq('user_id', user.id)
+                        .eq('name', selectedAthlete.name);
+                    if (!error && data) setAthleteGroupRecords(data);
+                } catch (err) {
+                    console.error('Error fetching athlete group records:', err);
+                }
+            };
+            fetchAthleteGroup();
+        }, [selectedAthlete?.name]);
+
+        const deviceChartConfig = DEVICE_RANGE_CONFIG[deviceRangeView] || DEVICE_RANGE_CONFIG['4D'];
+        const deviceRangeMeta = buildDeviceRangeMeta(deviceChartConfig, new Date());
+        // Falls back to just the single selected card until the grouped fetch resolves
+        const deviceRecords = athleteGroupRecords || (selectedAthlete?.id ? [selectedAthlete] : []);
+        const deviceStepCountData = buildDeviceMetricSeries(deviceRecords, 'Step Count', deviceRangeMeta, deviceChartConfig.buckets);
+        const deviceHeartRateData = buildDeviceMetricSeries(deviceRecords, 'Heart Rate', deviceRangeMeta, deviceChartConfig.buckets);
+        const deviceHrsOfSleepData = buildDeviceMetricSeries(deviceRecords, 'Hrs of Rest', deviceRangeMeta, deviceChartConfig.buckets);
+        const deviceRangeTabs = ['4D', '1M', '6M', '1Y'].map((key) => ({ key, label: key, children: null }));
+
+        // Detail-label click/hover handling below resolves the x-axis category from
+        // rendered DOM text; keep a live ref of the current Monitor Device Data
+        // categories so that lookup stays correct as the 4D/1M/6M/1Y tab changes
+        // (PROMIS charts still use the static week-based categories).
+        const deviceCategoriesRef = useRef(deviceRangeMeta.categories);
+        useEffect(() => {
+            deviceCategoriesRef.current = deviceRangeMeta.categories;
+        }, [deviceRangeMeta]);
+        const getCategoriesForMetric = (metricKey) => (
+            (String(metricKey) === '1' || String(metricKey) === '2' || String(metricKey) === '3')
+                ? deviceCategoriesRef.current
+                : (athleteFitbitGraphOptions?.xaxis?.categories || null)
+        );
+
         const [placingEvent, setPlacingEvent] = useState(false);
         const [eventsHidden, setEventsHidden] = useState(false);
         // PROMIS-specific controls for Activeness and Pain (shared)
@@ -44,13 +203,23 @@ const Athlete = (props) => {
         const promisPlacingEventRef = useRef(false);
         const prevBodyOverflowRef = useRef(null);
         const annotationsRef = useRef({});
-        const [annotationsByMetric, setAnnotationsByMetric] = useState({
-            '1': [],
-            '2': [],
-            '3': [],
-            '4': [],
-            '5': []
+        // Persist Detail-label annotations per athlete so they survive navigating away
+        // from /patient or closing the page (kept in localStorage, not just React state).
+        const annotationsStorageKey = `movet_annotations_${selectedAthlete?.id ?? selectedAthlete?.name ?? 'default'}`;
+        const [annotationsByMetric, setAnnotationsByMetric] = useState(() => {
+            const fallback = { '1': [], '2': [], '3': [], '4': [], '5': [] };
+            try {
+                const saved = window.localStorage.getItem(annotationsStorageKey);
+                if (saved) return { ...fallback, ...JSON.parse(saved) };
+            } catch (e) { /* ignore malformed/unavailable storage */ }
+            return fallback;
         });
+
+        useEffect(() => {
+            try {
+                window.localStorage.setItem(annotationsStorageKey, JSON.stringify(annotationsByMetric));
+            } catch (e) { /* ignore storage write failures (e.g. quota, privacy mode) */ }
+        }, [annotationsByMetric, annotationsStorageKey]);
         const previewRef = useRef(null);
         const chartRefs = useRef({});
 
@@ -166,7 +335,7 @@ const Athlete = (props) => {
                 return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
             };
 
-            const getNearestCategoryForWrapperAtX = (wrapper, pageX) => {
+            const getNearestCategoryForWrapperAtX = (wrapper, pageX, metricKey) => {
                 try {
                     const labels = Array.from(wrapper.querySelectorAll('.apexcharts-xaxis-texts-g text'));
                     if (!labels.length) return null;
@@ -185,9 +354,7 @@ const Athlete = (props) => {
 
                     if (nearestIdx < 0) return null;
 
-                    const categories = (athleteFitbitGraphOptions && athleteFitbitGraphOptions.xaxis && Array.isArray(athleteFitbitGraphOptions.xaxis.categories))
-                        ? athleteFitbitGraphOptions.xaxis.categories
-                        : null;
+                    const categories = getCategoriesForMetric(metricKey);
 
                     if (categories && categories[nearestIdx] !== undefined) return categories[nearestIdx];
                     const raw = labels[nearestIdx].textContent;
@@ -240,7 +407,7 @@ const Athlete = (props) => {
 
                     // Prefer looking up the full text from state (untruncated), keyed by the
                     // nearest x-axis category (annotation.x). DOM label text is truncated.
-                    const category = getNearestCategoryForWrapperAtX(wrapper, ev.clientX);
+                    const category = getNearestCategoryForWrapperAtX(wrapper, ev.clientX, metricKey);
                     const anns = (annotationsRef.current && annotationsRef.current[String(metricKey)])
                         ? annotationsRef.current[String(metricKey)]
                         : [];
@@ -308,9 +475,7 @@ const Athlete = (props) => {
                             return { node: n, cx: r.left + r.width / 2 };
                         });
 
-                        const categories = (athleteFitbitGraphOptions && athleteFitbitGraphOptions.xaxis && Array.isArray(athleteFitbitGraphOptions.xaxis.categories))
-                            ? athleteFitbitGraphOptions.xaxis.categories
-                            : null;
+                        const categories = getCategoriesForMetric(metricKey);
 
                         const nearestCategoryAtPageX = (pageX) => {
                             if (!axisCenters.length) return null;
@@ -369,9 +534,8 @@ const Athlete = (props) => {
                         if (d < nearestDist) { nearestDist = d; nearestIdx = idx; }
                     } catch (e) { /* ignore per-label */ }
                 });
-                const categories = (athleteFitbitGraphOptions && athleteFitbitGraphOptions.xaxis && Array.isArray(athleteFitbitGraphOptions.xaxis.categories))
-                    ? athleteFitbitGraphOptions.xaxis.categories
-                    : null;
+                const metricKey = wrapper.getAttribute ? wrapper.getAttribute('data-metric') : null;
+                const categories = getCategoriesForMetric(metricKey);
                 if (nearestIdx >= 0 && categories && categories[nearestIdx] !== undefined) return categories[nearestIdx];
                 if (nearestIdx >= 0) return (axisTextEls[nearestIdx].textContent || '').trim() || null;
             } catch (e) { /* ignore */ }
@@ -738,14 +902,18 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Step Count',
                                 type: 'column',
-                                        data: (selectedAthleteMetricData[0] && selectedAthleteMetricData[0].data) || stepCountData[selectedAthleteIndex]?.data || []
+                                        data: deviceStepCountData
                             }, {
                                 name: 'Average',
                                 type: 'area',
-                                data: averageData[0].data
+                                data: averageData[0].data.slice(0, deviceChartConfig.buckets)
                             }],
                         options: {
                                 ...athleteFitbitGraphOptions,
+                                xaxis: {
+                                        ...athleteFitbitGraphOptions.xaxis,
+                                        categories: deviceRangeMeta.categories
+                                },
                                 // disable markers for the Average series (second series)
                                 markers: {
                                         ...athleteFitbitGraphOptions.markers,
@@ -758,14 +926,18 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Heart Rate',
                                 type: 'column',
-                                        data: (selectedAthleteMetricData[1] && selectedAthleteMetricData[1].data) || heartRateData[selectedAthleteIndex]?.data || []
+                                        data: deviceHeartRateData
                             }, {
                                 name: 'Average',
                                 type: 'area',
-                                data: averageData[1].data
+                                data: averageData[1].data.slice(0, deviceChartConfig.buckets)
                             }],
                         options: {
                                 ...athleteFitbitGraphOptions,
+                                xaxis: {
+                                        ...athleteFitbitGraphOptions.xaxis,
+                                        categories: deviceRangeMeta.categories
+                                },
                                 markers: {
                                         ...athleteFitbitGraphOptions.markers,
                                         size: [ (athleteFitbitGraphOptions.markers && athleteFitbitGraphOptions.markers.size) ? athleteFitbitGraphOptions.markers.size : 4, 0 ]
@@ -777,14 +949,18 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Hrs of Rest',
                                 type: 'column',
-                                        data: (selectedAthleteMetricData[2] && selectedAthleteMetricData[2].data) || hrsOfSleepData[selectedAthleteIndex]?.data || []
+                                        data: deviceHrsOfSleepData
                             }, {
                                 name: 'Average',
                                 type: 'area',
-                                data: averageData[2].data
+                                data: averageData[2].data.slice(0, deviceChartConfig.buckets)
                             }],
                         options: {
                             ...athleteFitbitGraphOptions,
+                            xaxis: {
+                                ...athleteFitbitGraphOptions.xaxis,
+                                categories: deviceRangeMeta.categories
+                            },
                             markers: {
                                 ...athleteFitbitGraphOptions.markers,
                                 size: [ (athleteFitbitGraphOptions.markers && athleteFitbitGraphOptions.markers.size) ? athleteFitbitGraphOptions.markers.size : 4, 0 ]
@@ -990,9 +1166,7 @@ const Athlete = (props) => {
             let cleanWeek = weekText;
             let categoryIndex = -1;
             try {
-                const allCategories = (athleteFitbitGraphOptions && athleteFitbitGraphOptions.xaxis && Array.isArray(athleteFitbitGraphOptions.xaxis.categories))
-                    ? athleteFitbitGraphOptions.xaxis.categories
-                    : null;
+                const allCategories = getCategoriesForMetric(metricKey);
                 const labelIndex = labels.indexOf(nearest);
                 if (labelIndex >= 0 && allCategories && allCategories[labelIndex] !== undefined) {
                     categoryIndex = labelIndex;
@@ -1019,9 +1193,8 @@ const Athlete = (props) => {
                 // fall back to naive approach
                 const match = (weekText || '').match(/Week\s*-?\d+/i);
                 cleanWeek = match ? match[0] : weekText;
-                categoryIndex = (athleteFitbitGraphOptions && athleteFitbitGraphOptions.xaxis && Array.isArray(athleteFitbitGraphOptions.xaxis.categories))
-                    ? athleteFitbitGraphOptions.xaxis.categories.indexOf(cleanWeek)
-                    : -1;
+                const fallbackCategories = getCategoriesForMetric(metricKey);
+                categoryIndex = fallbackCategories ? fallbackCategories.indexOf(cleanWeek) : -1;
             }
 
             // debug logging to help diagnose runtime issues
@@ -1240,7 +1413,9 @@ const Athlete = (props) => {
                             </div>
                             <div className='patient-card-metric-stat'>
                                 <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[0]?.avg ?? '-'}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[0]?.percentage ?? 0}% {selectedAthleteMetricData[0]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[0]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                {(selectedAthleteMetricData[0]?.data?.length ?? 0) > 1 && (
+                                    <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[0]?.percentage ?? 0}% {selectedAthleteMetricData[0]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[0]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                )}
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[0]]} type="line" height={120}></Chart>
@@ -1252,7 +1427,9 @@ const Athlete = (props) => {
                             </div>
                             <div className='patient-card-metric-stat'>
                                 <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[1]?.avg ?? '-'}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[1]?.percentage ?? 0}% {selectedAthleteMetricData[1]?.arrow === "down" ? <CaretDownOutlined style={{color: "#52c41a"}}/> : (selectedAthleteMetricData[1]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#f37f89"}}/>)} </Title>
+                                {(selectedAthleteMetricData[1]?.data?.length ?? 0) > 1 && (
+                                    <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[1]?.percentage ?? 0}% {selectedAthleteMetricData[1]?.arrow === "down" ? <CaretDownOutlined style={{color: "#52c41a"}}/> : (selectedAthleteMetricData[1]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#f37f89"}}/>)} </Title>
+                                )}
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[1]]} type="line" height={120}></Chart>
@@ -1264,7 +1441,9 @@ const Athlete = (props) => {
                             </div>
                             <div className='patient-card-metric-stat'>
                                 <Title level={4} style={{margin: 0}}>{selectedAthleteMetricData[2]?.avg ?? '-'}</Title>
-                                <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[2]?.percentage ?? 0}% {selectedAthleteMetricData[2]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[2]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                {(selectedAthleteMetricData[2]?.data?.length ?? 0) > 1 && (
+                                    <Title level={5} style={{fontWeight: 'normal', margin: 0}}>{selectedAthleteMetricData[2]?.percentage ?? 0}% {selectedAthleteMetricData[2]?.arrow === "down" ? <CaretDownOutlined style={{color: "#f37f89"}}/> : (selectedAthleteMetricData[2]?.arrow === "mid" ? <MinusOutlined style={{color: "#acacac"}}/>: <CaretUpOutlined style={{color: "#52c41a"}}/>)} </Title>
+                                )}
                             </div>
                             {/* <img className="image" src={image} alt="flow"></img> */}
                             <Chart options={overviewOptions} series={[metricOverview[2]]} type="line" height={120}></Chart>
@@ -1277,12 +1456,21 @@ const Athlete = (props) => {
                         <Col span={24} className="patient-fitbit-title" >
                             <Title level={3}>Monitor Device Data</Title>
                                         <div className="patient-fitbit-options">
-                                            <Segmented options={['Last Week', 'Last Month', 'Last 3 Months']} value={value} onChange={setValue} className="patient-fitbit-segmented"/>
                                             <Button className="hide-events-btn" onClick={() => setEventsHidden(h => !h)}>
                                                 {eventsHidden ? 'Show Details' : 'Hide Details'}
                                             </Button>
                                         </div>
                         </Col>
+                </Row>
+                <Row>
+                    <Col span={24}>
+                        <Tabs
+                            className="team-range-tabs device-range-tabs"
+                            activeKey={deviceRangeView}
+                            onChange={setDeviceRangeView}
+                            items={deviceRangeTabs}
+                        />
+                    </Col>
                 </Row>
                 <Row>
                     <Col span={24}>
