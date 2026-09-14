@@ -4,8 +4,8 @@ import { Link, useLocation } from "react-router-dom";
 import { ArrowLeftOutlined, QuestionCircleOutlined, CaretUpOutlined, CaretDownOutlined, MinusOutlined } from '@ant-design/icons';
 import './App.css';
 import 'antd/dist/reset.css';
-import { Layout, Card, Row, Col, Typography, Segmented, Tooltip, Tabs, Button } from 'antd';
-import { stepCountData, heartRateData, hrsOfSleepData, physicalFuncData, painInterData, athleteFitbitGraphOptions } from "./data/graph/GraphData";
+import { Layout, Card, Row, Col, Typography, Tooltip, Tabs, Button } from 'antd';
+import { stepCountData, heartRateData, hrsOfSleepData, athleteFitbitGraphOptions } from "./data/graph/GraphData";
 import athleteData from "./data/athleteData";
 import { supabase } from "./supabaseClient";
 
@@ -135,8 +135,8 @@ const Athlete = (props) => {
         window.scrollTo(0, 0)
       }, [])
 
-        const [value, setValue] = useState('Last Week');
         const [deviceRangeView, setDeviceRangeView] = useState('4D');
+        const [promisRangeView, setPromisRangeView] = useState('4D');
         const [athleteGroupRecords, setAthleteGroupRecords] = useState(null);
 
         // Pull every card sharing this athlete's name so Monitor Device Data reflects all of them
@@ -167,6 +167,9 @@ const Athlete = (props) => {
         const deviceHeartRateData = buildDeviceMetricSeries(deviceRecords, 'Heart Rate', deviceRangeMeta, deviceChartConfig.buckets);
         const deviceHrsOfSleepData = buildDeviceMetricSeries(deviceRecords, 'Hrs of Rest', deviceRangeMeta, deviceChartConfig.buckets);
         const deviceRangeTabs = ['4D', '1M', '6M', '1Y'].map((key) => ({ key, label: key, children: null }));
+        const promisChartConfig = DEVICE_RANGE_CONFIG[promisRangeView] || DEVICE_RANGE_CONFIG['4D'];
+        const promisRangeMeta = buildDeviceRangeMeta(promisChartConfig, new Date());
+        const promisRangeTabs = ['4D', '1M', '6M', '1Y'].map((key) => ({ key, label: key, children: null }));
 
         // Detail-label click/hover handling below resolves the x-axis category from
         // rendered DOM text; keep a live ref of the current Monitor Device Data
@@ -888,15 +891,43 @@ const Athlete = (props) => {
                 name: "Average Hrs of Rest",
                 data: [5, 5, 6, 7, 6, 6, 7, 7, 8, 8, 8, 9, 9, 9, 9, 8]
             },
-            {
-                name: "Activeness",
-                data: [50, 50, 60, 70, 60, 60, 70, 70, 80, 80, 80, 90, 90, 90, 90, 80]
-            },
-            {
-                name: "Pain",
-                data: [50, 50, 60, 70, 60, 60, 70, 70, 80, 80, 80, 90, 90, 90, 90, 80]
-            },
         ]
+
+        // Maps an athlete-card tag ('poor'/'moderate'/'good') to the same red/yellow/green
+        // used on the Athlete List cards (PatientCard.js), plus a bar height matching the band.
+        const promisTagToStyle = (tag) => {
+            if (tag === 'poor') return { value: 20, color: '#E53935' };
+            if (tag === 'moderate') return { value: 55, color: '#F9A825' };
+            return { value: 90, color: '#43A047' };
+        };
+
+        // Builds one color-coded bar per date bucket from every card sharing this athlete's
+        // name. When multiple cards share the same date, only the most recent (lowest
+        // positioned in that date's Athlete List column) card is used.
+        const buildPromisTagSeries = (records, tagField, meta, bucketCount) => {
+            const list = Array.isArray(records) ? records : [];
+            const latestByDate = new Map();
+            list.forEach((record) => {
+                if (!record?.inserted_at) return;
+                const dateKey = deviceToStartOfDay(record.inserted_at).getTime();
+                // later entries in the array overwrite earlier ones for the same date
+                latestByDate.set(dateKey, record);
+            });
+
+            const result = Array.from({ length: bucketCount }, (_, idx) => ({ x: meta.categories[idx], y: null }));
+            Array.from(latestByDate.entries())
+                .sort(([a], [b]) => a - b)
+                .forEach(([, record]) => {
+                    const bucketIndex = meta.getBucketIndex(record.inserted_at);
+                    if (bucketIndex < 0) return;
+                    const tag = record[tagField]?.[0];
+                    const { value, color } = promisTagToStyle(tag);
+                    // ascending date order means later entries in this loop are more recent,
+                    // so they naturally win when multiple dates land in the same bucket
+                    result[bucketIndex] = { x: meta.categories[bucketIndex], y: value, fillColor: color };
+                });
+            return result;
+        };
 
                 var stepCountOptions = {
                         series: [{
@@ -968,22 +999,37 @@ const Athlete = (props) => {
                         }
                 }
 
+                // PROMIS y-axis: 0 at the bottom, then Red -> Yellow -> Green bands stacked upward
+                const promisYaxis = {
+                    min: 0,
+                    max: 100,
+                    tickAmount: 3,
+                    labels: {
+                        formatter: (val) => {
+                            if (val <= 1) return '0';
+                            if (val <= 50) return 'Red';
+                            if (val <= 84) return 'Yellow';
+                            return 'Green';
+                        },
+                        style: {
+                            colors: ['#333', '#E53935', '#F9A825', '#43A047']
+                        }
+                    }
+                };
+
                 var pfOptions = {
                         series: [{
                                 name: 'Activeness',
                                 type: 'column',
-                                        data: selectedAthlete.pfScore || physicalFuncData[selectedAthleteIndex]?.data || []
-                            }, {
-                                name: 'Average',
-                                type: 'area',
-                                data: averageData[3].data
+                                data: buildPromisTagSeries(deviceRecords, 'pfTags', promisRangeMeta, promisChartConfig.buckets)
                             }],
                         options: {
                             ...athleteFitbitGraphOptions,
-                            markers: {
-                                ...athleteFitbitGraphOptions.markers,
-                                size: [ (athleteFitbitGraphOptions.markers && athleteFitbitGraphOptions.markers.size) ? athleteFitbitGraphOptions.markers.size : 4, 0 ]
-                            }
+                            xaxis: {
+                                ...athleteFitbitGraphOptions.xaxis,
+                                categories: promisRangeMeta.categories
+                            },
+                            yaxis: promisYaxis
                         }
                 }
 
@@ -991,18 +1037,15 @@ const Athlete = (props) => {
                         series: [{
                                 name: 'Pain',
                                 type: 'column',
-                                        data: selectedAthlete.piScore || painInterData[selectedAthleteIndex]?.data || []
-                            }, {
-                                name: 'Average',
-                                type: 'area',
-                                data: averageData[4].data
+                                data: buildPromisTagSeries(deviceRecords, 'piTags', promisRangeMeta, promisChartConfig.buckets)
                             }],
                         options: {
                             ...athleteFitbitGraphOptions,
-                            markers: {
-                                ...athleteFitbitGraphOptions.markers,
-                                size: [ (athleteFitbitGraphOptions.markers && athleteFitbitGraphOptions.markers.size) ? athleteFitbitGraphOptions.markers.size : 4, 0 ]
-                            }
+                            xaxis: {
+                                ...athleteFitbitGraphOptions.xaxis,
+                                categories: promisRangeMeta.categories
+                            },
+                            yaxis: promisYaxis
                         }
                 }
 
@@ -1497,14 +1540,21 @@ const Athlete = (props) => {
                     <Col span={24} className="patient-fitbit-title" >
                             <Title level={3}>PROMIS Data</Title>
                             <div className="patient-fitbit-options">
-                                <Segmented options={['Last Week', 'Last Month', 'Last 3 Months']} value={value} onChange={setValue} className="patient-fitbit-segmented"/>
-                                <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-                                    <Button className="hide-events-btn" onClick={() => setPromisEventsHidden(h => !h)}>
-                                        {promisEventsHidden ? 'Show Details' : 'Hide Details'}
-                                    </Button>
-                                </div>
+                                <Button className="hide-events-btn" onClick={() => setPromisEventsHidden(h => !h)}>
+                                    {promisEventsHidden ? 'Show Details' : 'Hide Details'}
+                                </Button>
                             </div>
                         </Col>
+                </Row>
+                <Row>
+                    <Col span={24}>
+                        <Tabs
+                            className="team-range-tabs device-range-tabs"
+                            activeKey={promisRangeView}
+                            onChange={setPromisRangeView}
+                            items={promisRangeTabs}
+                        />
+                    </Col>
                 </Row>
                 <Row>
                     <Col span={24}>

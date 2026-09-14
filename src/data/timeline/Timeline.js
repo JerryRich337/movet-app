@@ -60,18 +60,37 @@ function Timeline(props) {
   });
 
   if (focusRange && focusRange.start && focusRange.end) {
-    // One column for every athlete card that falls inside the clicked chart column's date range
+    // One column per actual date within the clicked chart column's date range,
+    // instead of merging every date into a single mislabeled column.
     const focusAthletes = athletes.filter(a => {
       const rawDate = a.inserted_at ? a.inserted_at.split('T')[0] : null;
       return rawDate && rawDate >= focusRange.start && rawDate <= focusRange.end;
     });
 
-    const focusColumn = {
-      rawDate: focusRange.end,
-      displayDate: formatDate(`${focusRange.end}T00:00:00.000Z`),
-      athletes: focusAthletes,
-      isFocus: true,
-    };
+    const focusGroupedByDate = focusAthletes.reduce((acc, athlete) => {
+      const rawDate = athlete.inserted_at.split('T')[0];
+      if (!acc[rawDate]) {
+        acc[rawDate] = {
+          rawDate,
+          displayDate: formatDate(athlete.inserted_at),
+          athletes: [],
+          isFocus: true,
+        };
+      }
+      acc[rawDate].athletes.push(athlete);
+      return acc;
+    }, {});
+
+    let focusColumns = Object.values(focusGroupedByDate);
+    if (focusColumns.length === 0) {
+      // No cards fall in range; still show an empty placeholder column for the bucket
+      focusColumns = [{
+        rawDate: focusRange.end,
+        displayDate: formatDate(`${focusRange.end}T00:00:00.000Z`),
+        athletes: [],
+        isFocus: true,
+      }];
+    }
 
     const dayDistance = (rawDate) => {
       if (rawDate < focusRange.start) return (new Date(focusRange.start) - new Date(rawDate)) / MS_PER_DAY;
@@ -84,7 +103,7 @@ function Timeline(props) {
       .sort((a, b) => dayDistance(a.rawDate) - dayDistance(b.rawDate))
       .slice(0, 3);
 
-    allColumns = [focusColumn, ...closestOthers];
+    allColumns = [...focusColumns, ...closestOthers];
   }
 
   // Sort columns chronologically (earliest date to latest date)
